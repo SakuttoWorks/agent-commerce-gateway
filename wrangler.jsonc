@@ -1,0 +1,32 @@
+{
+    "name": "agent-commerce-gateway", // 更新：リポジトリ名とOSの役割に統一
+    "main": "src/entry.py",
+    "compatibility_date": "2024-11-01",
+    "compatibility_flags": [
+        "python_workers"
+    ],
+    "placement": {
+        "mode": "smart"
+    },
+    "analytics_engine_datasets": [
+        {
+            "binding": "ANALYTICS",
+            "dataset": "agent_intent_logs"
+        }
+    ],
+    "vars": {
+        "CORE_ORIGIN": "https://placeholder-run-url.a.run.app",
+        "ENVIRONMENT": "production",
+        "LEMON_SQUEEZY_STORE_ID": "282368",
+        "ANALYTICS_DATASET_NAME": "agent_intent_logs"
+    },
+    "observability": {
+        "enabled": true
+    },
+    "routes": [
+        {
+            "pattern": "api.sakutto.works",
+            "custom_domain": true
+        }
+    ]
+}
