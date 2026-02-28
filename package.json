@@ -1,0 +1,15 @@
+{
+    "name": "agent-commerce-gateway",
+    "version": "1.0.0",
+    "private": true,
+    "description": "The Intelligent Edge Gateway for Agent-Commerce-OS. Handles Auth, Billing, and MCP aggregation.",
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "start": "wrangler dev",
+        "cf-typegen": "wrangler types"
+    },
+    "devDependencies": {
+        "wrangler": "^3.100.0" 
+    }
+}
