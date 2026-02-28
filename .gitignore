@@ -1,0 +1,34 @@
+# === Cloudflare / Wrangler (重要: 0円運用とセキュリティ) ===
+.wrangler/
+.dev.vars
+.env
+# ローカルの秘密変数がGitHubに上がるのを絶対阻止します
+
+# === Node.js (Wranglerの依存関係) ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+package-lock.json
+# package-lockは好みですが、0円運用を支える軽量リポジトリのため無視を推奨
+
+# === Python Core (2026 Optimized) ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+python_modules/
+
+# === Editor / IDE (VS Code) ===
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# === Operating System ===
+.DS_Store
+Thumbs.db
