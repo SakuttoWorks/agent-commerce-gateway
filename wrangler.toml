@@ -44,3 +44,7 @@ pattern = "api.sakutto.works"
 ANALYTICS_DATASET_NAME = "gateway_access_logs"
 CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
 ENVIRONMENT = "production"
+
+[[env.production.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "gateway_access_logs"
