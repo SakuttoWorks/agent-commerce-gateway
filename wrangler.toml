@@ -1,0 +1,46 @@
+compatibility_date = "2026-03-03"
+main = "src/index.ts"
+name = "agent-commerce-gateway"
+
+# 【修正】TypeScript (Hono) なので Python フラグは削除し、Node互換のみにします
+compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare の最適化配置設定
+[placement]
+mode = "smart"
+
+# 可観測性の設定
+[observability]
+enabled = true
+
+# 分析エンジンの設定（共通）
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+# 【修正】"intent" (意図) を排除し、単なるアクセスログに見せます
+dataset = "gateway_access_logs"
+
+# =========================================================
+# ▼ デフォルト設定 (ローカル開発用: wrangler dev)
+# =========================================================
+[vars]
+# ローカル開発用
+ANALYTICS_DATASET_NAME = "gateway_access_logs_dev"
+CORE_API_URL = "http://127.0.0.1:8000"
+ENVIRONMENT = "development"
+
+# =========================================================
+# ▼ 本番環境設定 (デプロイ用: --env production)
+# =========================================================
+[env.production]
+name = "agent-commerce-gateway-prod"
+
+# 【重要】本番用ルーティング (api.sakutto.works)
+[[env.production.routes]]
+custom_domain = true
+pattern = "api.sakutto.works"
+
+[env.production.vars]
+# Google Cloud Run (Layer B) との接続URL
+ANALYTICS_DATASET_NAME = "gateway_access_logs"
+CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
+ENVIRONMENT = "production"

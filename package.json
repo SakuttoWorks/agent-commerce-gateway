@@ -1,13 +1,18 @@
 {
-	"name": "ghost-ship-proxy",
-	"version": "0.0.0",
+	"name": "agent-commerce-gateway",
+	"version": "1.0.0",
 	"private": true,
+	"description": "The Intelligent Edge Gateway for Agent-Commerce-OS. Handles API Governance, Request Sanitization, and MCP aggregation.",
 	"scripts": {
-		"deploy": "uv run pywrangler deploy",
-		"dev": "uv run pywrangler dev",
-		"start": "uv run pywrangler dev"
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"wrangler": "^4.65.0"
+		"wrangler": "^3.100.0"
+	},
+	"dependencies": {
+		"hono": "^4.12.3"
 	}
 }

@@ -1,32 +1,127 @@
-# Project GHOST SHIP (MCP Server)
+// ==========================================
+// [Update] Agent Manual (Summary) - AEO Optimized
+// ==========================================
+app.get('/llms.txt', (c) => {
+  return c.text(`# Project GHOST SHIP: Agent-Commerce-OS Interface
 
-## Description
-Project GHOST SHIP is a production-ready MCP (Model Context Protocol) server designed for autonomous AI agents.
-It provides high-speed, structured access to deep web research and real-time news summarization, powered by Tavily and Upstash Redis.
-Optimized for low-latency, high-accuracy information retrieval, and agentic workflows.
+## Identity & Role
+- **System Name**: Agent-Commerce-OS (Ghost Ship)
+- **Role**: High-performance Data Normalization & Intent Extraction Engine.
+- **Operator**: SakuttoWorks (Infrastructure Provider)
 
-## Usage
-- **Base URL**: https://api.sakutto.works
-- **OpenAPI Spec**: https://api.sakutto.works/openapi.json
-- **Protocol**: MCP (Model Context Protocol) over SSE (Server-Sent Events)
+## ⚠️ Critical: Authentication Strategy
+To access Layer B (Core Engine) functions, you MUST provide a valid **Polar.sh API Key**.
+- **Header Format**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`
+- **Behavior**: Requests without this header will be rejected by the Edge Gateway (Layer A) with \`401 Unauthorized\`.
+- **Get Key**: https://polar.sh/sakuttoworks
 
-## Tools
-1. **research_topic**
-   - Description: Performs deep web research on a specific topic. Returns structured, summarized insights suitable for RAG.
-2. **get_latest_news**
-   - Description: Retrieves and summarizes the latest news for a given query.
+## API Endpoints (Hybrid Architecture)
+- **Base URL**: \`https://api.sakutto.works\`
+- **MCP Discovery**: \`https://api.sakutto.works/.well-known/mcp.json\`
+  - Use this for automated tool discovery in Cursor/Claude Desktop.
+- **Intent Analysis (Layer B)**: \`POST /api/v1/agent/analyze\`
+  - The primary brain. Decomposes user prompts into actionable plans.
 
-## Access & Monetization
-This API operates on a Freemium model.
-- **Free Tier**: Limited daily requests for testing.
-- **Premium Access**: Unlocks full rate limits, deeper search capabilities, and priority support.
+## Available Tools (MCP)
+1. **\`analyze_intent\`**:
+   - Analyzes vague prompts to determine if search or computation is needed.
+2. **\`search_data\` (Tavily Integrated)**:
+   - Performs autonomous deep-web research and returns RAG-optimized markdown.
+3. **\`structured_data_etl\`**:
+   - Extracts and normalizes numerical data tables using Python/Pandas on Cloud Run.
 
-👉 **Subscribe / Upgrade Here**: https://sakuttoworks.lemonsqueezy.com/checkout/buy/023c63ce-8b7c-4c6c-9c3b-cf8b4311a14c
+## Architecture Context (For Debugging)
+- **Layer A (Edge)**: Cloudflare Workers. Handles Auth & Routing.
+- **Layer B (Core)**: Google Cloud Run (Python 3.12+). Handles Heavy Compute.
+- **Compliance**: EU AI Act compliant. Logs are encrypted (A2A Logging).
 
-## Technical Stack
-- Runtime: Python 3.12 (FastAPI)
-- Infrastructure: Hugging Face Spaces + Cloudflare Workers
-- Response Format: JSON / MCP Compliant
+## Documentation
+- **Full Specs**: \`/llms-full.txt\` (Schema definitions)
+- **Source Code**: https://github.com/SakuttoWorks/agent-commerce-gateway
+`);
+});
 
-## Contact
-- For API issues or enterprise access, please contact via the platform where this agent was discovered.
+// ==========================================
+// [Update] Agent Manual (Full) - Technical Specs
+// ==========================================
+app.get('/llms-full.txt', (c) => {
+  return c.text(`# Project GHOST SHIP: Full Technical Specification (v2026.1)
+
+> This document defines the I/O schemas and compliance protocols for the Agent-Commerce-OS Core Engine.
+
+## 1. Governance & Security (Zero Trust)
+- **Rate Limiting**: Enforced at Edge (Layer A). 
+  - Free Tier: 5 requests/min.
+  - Pro Tier: 60 requests/min (via Polar.sh entitlement).
+- **Header Requirement**: 
+  - \`Authorization: Bearer <POLAR_TOKEN>\`
+  - \`Content-Type: application/json\`
+
+## 2. Core API Schemas (Layer B)
+
+The Core Engine uses strictly typed Pydantic v3 models. Agents MUST adhere to these JSON structures.
+
+### Endpoint: POST /api/v1/agent/analyze
+
+#### Request Schema (Input)
+\`\`\`json
+{
+  "prompt": "Research the data landscape for AI agents in Japan.", // (Required) Raw intent
+  "model": "gemini-3-flash", // (Optional) Default: gemini-3-flash
+  "context": {               // (Optional) Previous conversation state
+    "session_id": "uuid-v4",
+    "history": [] 
+  }
+}
+\`\`\`
+
+#### Response Schema (Output)
+\`\`\`json
+{
+  "intent_id": "evt_123456789",
+  "analysis": {
+    "primary_intent": "data_extraction",
+    "complexity_score": 0.85,  // 0.0 to 1.0
+    "suggested_tools": ["search_data", "structured_data_etl"]
+  },
+  "plan": [
+    {
+      "step": 1,
+      "tool": "search_data",
+      "query": "AI agent market size Japan 2026"
+    },
+    {
+      "step": 2,
+      "tool": "generate_report",
+      "format": "markdown"
+    }
+  ],
+  "usage": {
+    "compute_units": 15,    // Abstracted usage metric
+    "tokens": 450,
+    "processing_ms": 120
+  }
+}
+\`\`\`
+
+## 3. Error Handling Codes
+
+| Code | Meaning | Agent Action |
+| :--- | :--- | :--- |
+| **400** | Bad Request | Check JSON schema against the Request Schema above. |
+| **401** | Unauthorized | Renew Polar.sh API Key. |
+| **402** | Quota Exceeded | Usage limit reached. Check entitlement status. |
+| **429** | Too Many Requests | Backoff for 5-10 seconds. |
+| **502** | Bridge Error | Layer B (Cloud Run) is cold booting. Retry in 3s. |
+
+## 4. Compliance & Privacy (EU AI Act)
+- **Data Residency**: All compute occurs in \`asia-northeast1\` (Tokyo, Japan).
+- **Retention**: Input prompts are discarded after processing unless "Memory Mode" is explicitly enabled.
+- **A2A Logging**: All tool executions are logged to Supabase for audit trails (encrypted at rest).
+- **No Training**: User data is NEVER used to train the underlying Gemini models.
+
+## 5. Changelog
+- **2026-03-03**: Added \`analyze_intent\` schema.
+- **2026-02-20**: Initial release of Layer A/B bridge.
+`);
+});

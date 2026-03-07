@@ -8,6 +8,6 @@ startCommand:
     properties: {}
   commandFunction: |-
     (config) => ({
-      command: 'python',
-      args: ['src/entry.py']
+      command: 'npx',
+      args: ['wrangler', 'dev']
     })

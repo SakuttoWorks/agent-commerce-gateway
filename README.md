@@ -1,23 +1,50 @@
-## Usage
+# 🏴‍☠️ Ghost Ship Proxy (Edge Layer)
 
-You can run the Worker defined by your new project by executing `wrangler dev` in this
-directory. This will start up an HTTP server and will allow you to iterate on your
-Worker without having to restart `wrangler`.
+Project GHOST SHIP の「玄関（Edge Gateway）」を担当する Cloudflare Worker です。
+Python で記述されており、AI Agent からのリクエストを高速に処理・ルーティングします。
 
-### Types and autocomplete
+## 役割 (Layer A)
 
-This project also includes a pyproject.toml with some requirements which
-set up autocomplete and type hints for this Python Workers project.
+1. **MCP Protocol Handling**: Agent との接続維持 (SSE)。
+2. **Auth Gateway**: RapidAPI / Polar.sh の認証チェック。
+3. **Routing**: 重い処理を Google Cloud Run (Layer B) へ転送。
 
-To get these installed you'll need `uv`, which you can install by following
-https://docs.astral.sh/uv/getting-started/installation/.
+## クイックスタート
 
-Once `uv` is installed, you can run the following:
+### 1. 依存関係のインストール
 
-```
-uv venv
-uv sync
+```bash
+npm install
 ```
 
-Then point your editor's Python plugin at the `.venv` directory. You should then have working
-autocomplete and type information in your editor.
+### 2. ローカル開発サーバー起動
+
+```bash
+npm run dev
+# または
+npx wrangler dev
+```
+
+### 3. デプロイ
+
+```bash
+npm run deploy
+# または
+npx wrangler deploy
+```
+
+## ディレクトリ構成
+
+* **src/entry.py**: メインロジック（ここを編集する）
+* **llms.txt**: Agent 用の説明書
+* **mcp.json**: Agent 用のツール定義
+
+---
+
+### .gitignore 追加分
+
+```text
+# Python bytecode
+__pycache__/
+*.pyc
+```
