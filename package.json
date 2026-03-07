@@ -1,0 +1,21 @@
+{
+    "name": "agent-commerce-gateway",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Secure Edge Gateway for Web Data Normalization & MCP Protocol Translation.",
+    "license": "MIT",
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "start": "wrangler dev",
+        "cf-typegen": "wrangler types"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20240208.0",
+        "wrangler": "^3.100.0",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "hono": "^4.12.3"
+    }
+}
