@@ -1,11 +1,34 @@
-name = "agent-commerce-gateway"
-main = "src/index.ts"
 compatibility_date = "2026-03-03"
+main = "src/index.ts"
+name = "agent-commerce-gateway"
 
-# Node.js compatibility for Hono & Standard Libraries
+# Node.js compatibility flags for Hono & Standard Libraries
 compatibility_flags = ["nodejs_compat"]
 
-# Smart Placement (Optimization)
+# =========================================================
+# ▼ Routing Configuration (Custom Domain)
+# =========================================================
+routes = [
+  {pattern = "api.sakutto.works", custom_domain = true},
+]
+
+# =========================================================
+# ▼ Production Environment Variables
+# =========================================================
+[vars]
+# Analytics Dataset Name
+ANALYTICS_DATASET_NAME = "gateway_access_logs"
+
+# Upstream Service URL (Layer B: Google Cloud Run)
+CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
+
+# Environment Context (Strict Production Mode)
+ENVIRONMENT = "production"
+
+# =========================================================
+# ▼ Infrastructure Optimization
+# =========================================================
+# Smart Placement: Optimizes latency by moving execution closer to data/services
 [placement]
 mode = "smart"
 
@@ -13,36 +36,7 @@ mode = "smart"
 [observability]
 enabled = true
 
-# Analytics Engine (Access Logs)
+# Analytics Engine Binding
 [[analytics_engine_datasets]]
-binding = "ANALYTICS"
-dataset = "gateway_access_logs"
-
-# =========================================================
-# ▼ Development Environment (wrangler dev)
-# =========================================================
-[vars]
-ANALYTICS_DATASET_NAME = "gateway_access_logs_dev"
-CORE_API_URL = "http://127.0.0.1:8000"
-ENVIRONMENT = "development"
-
-# =========================================================
-# ▼ Production Environment (--env production)
-# =========================================================
-[env.production]
-name = "agent-commerce-gateway-prod"
-
-# Production Route (Custom Domain)
-[[env.production.routes]]
-custom_domain = true
-pattern = "api.sakutto.works"
-
-[env.production.vars]
-# Upstream connection to Layer B (Cloud Run)
-ANALYTICS_DATASET_NAME = "gateway_access_logs"
-CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
-ENVIRONMENT = "production"
-
-[[env.production.analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "gateway_access_logs"
