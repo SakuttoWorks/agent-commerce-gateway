@@ -40,3 +40,4 @@ enabled = true
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "gateway_access_logs"
+
