@@ -15,7 +15,7 @@ venv/
 # ===========================
 # Data Safety (Prevent Leaks)
 # ===========================
-# 誤ってテストデータ(金融データに見えるもの等)をコミットしないための防御策
+# Safeguards to prevent accidental commits of local datasets or cache files
 *.csv
 *.jsonl
 *.sqlite
