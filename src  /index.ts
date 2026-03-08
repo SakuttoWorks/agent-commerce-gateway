@@ -2,11 +2,11 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
 // ==========================================
-// 型定義: Cloudflare 環境変数
+// Type Definitions: Cloudflare Environment Variables
 // ==========================================
 type Bindings = {
-    INTERNAL_AUTH_SECRET: string // Core(Layer B)との通信用共通鍵
-    CORE_API_URL: string         // Core(Layer B)のURL (Google Cloud Run)
+    INTERNAL_AUTH_SECRET: string // Shared secret for Core (Layer B) communication
+    CORE_API_URL: string         // Core (Layer B) URL (Google Cloud Run)
     ENVIRONMENT: string          // 'production' | 'development'
 }
 
@@ -17,11 +17,11 @@ const app = new Hono<{ Bindings: Bindings }>()
 // ==========================================
 app.use('*', cors({
     origin: (origin) => {
-        // 開発環境 (localhostとそのポート) を許可
+        // Allow local development environment
         if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
-        // 本番環境 (sakutto.works とそのサブドメイン) を許可
+        // Allow production environment (sakutto.works and subdomains)
         if (origin.endsWith('.sakutto.works') || origin === 'https://sakutto.works') return origin;
-        // それ以外はブロック (ブラウザには許可されたオリジンとして本番URLを返すことで拒否挙動とする)
+        // Block others (Return production URL as valid origin to effectively reject browser access)
         return 'https://api.sakutto.works';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
@@ -33,26 +33,26 @@ app.use('*', cors({
 // 2. Static Discovery Layer (Documentation)
 // ==========================================
 
-// Root: ランディングページ (UI)
+// Root: Landing Page (UI)
 app.get('/', (c) => {
     return c.html(generateLandingPage());
 });
 
-// Documentation: AI Agent用マニュアル (Short)
+// Documentation: Context for AI Agents (Short)
 app.get('/llms.txt', (c) => {
     return c.text(generateLLMsTxt());
 });
 
-// Documentation: 技術仕様書 (Full)
+// Documentation: Technical Specifications (Full)
 app.get('/llms-full.txt', (c) => {
     return c.text(generateFullSpecs());
 });
 
 // ==========================================
-// MCP Discovery: エージェント自動接続用 (統合版)
+// MCP Discovery: Integrated Agent Connection
 // ==========================================
 
-// 定義データ (mcp.jsonの中身をここにハードコード)
+// Hardcoded MCP definition data
 const mcpResponse = {
     "mcpVersion": "2026.1.0",
     "name": "SakuttoWorks-Agent-Commerce-OS",
@@ -111,7 +111,7 @@ const mcpResponse = {
     ]
 };
 
-// どのパスで叩かれてもいいように全パターンをルーティング
+// Route all MCP discovery patterns
 app.get('/mcp', (c) => c.json(mcpResponse));
 app.get('/mcp/', (c) => c.json(mcpResponse));
 app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
@@ -122,7 +122,7 @@ app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
 // ==========================================
 
 app.all('/api/*', async (c) => {
-    // 1. 安全装置: 環境変数のチェック
+    // 1. Safety Guard: Check Environment Variables
     if (!c.env.CORE_API_URL || !c.env.INTERNAL_AUTH_SECRET) {
         console.error("Missing Environment Variables");
         return c.json({
@@ -131,33 +131,33 @@ app.all('/api/*', async (c) => {
         }, 500);
     }
 
-    // 2. URLの構築 (二重スラッシュ防止)
+    // 2. Construct Target URL (Prevent double slashes)
     const url = new URL(c.req.url);
-    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, ''); // 末尾スラッシュ削除
-    // パスをそのまま引き継ぐ
+    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, ''); // Remove trailing slash
+    // Preserve path and query
     const targetUrl = `${coreOrigin}${url.pathname}${url.search}`;
 
-    // 3. リクエストヘッダーの再構築
+    // 3. Reconstruct Request Headers
     const proxyHeaders = new Headers(c.req.raw.headers);
     proxyHeaders.delete('Host');
-    proxyHeaders.delete('Cf-Connecting-Ip'); // 必要に応じて削除
+    proxyHeaders.delete('Cf-Connecting-Ip'); // Remove if necessary
 
-    // 内部認証シークレットを付与 (Core側でこれを検証する)
+    // Attach Internal Auth Secret (Verified by Core)
     proxyHeaders.set('X-Internal-Secret', c.env.INTERNAL_AUTH_SECRET);
 
-    // 4. 新しいリクエストの作成
+    // 4. Create New Request
     const proxyRequest = new Request(targetUrl, {
         method: c.req.method,
         headers: proxyHeaders,
         body: c.req.raw.body,
-        redirect: 'manual' // リダイレクトはクライアントに返させる
+        redirect: 'manual' // Let client handle redirects
     });
 
-    // 5. Cloud Run へ転送実行
+    // 5. Execute Proxy Request to Cloud Run
     try {
         const response = await fetch(proxyRequest);
 
-        // レスポンスヘッダーの整理 (CORSなどはGatewayが管理するので一部除外も可)
+        // Sanitize Response Headers (Gateway manages CORS, so we can filter others)
         const responseHeaders = new Headers(response.headers);
         responseHeaders.set('X-Served-By', 'Agent-Commerce-Gateway');
 
@@ -176,7 +176,7 @@ app.all('/api/*', async (c) => {
     }
 });
 
-// 未定義ルートへのアクセス
+// Catch-all for undefined routes
 app.notFound((c) => {
     return c.json({ message: "Endpoint not found", docs: "https://sakutto.works" }, 404);
 });
@@ -285,7 +285,7 @@ The Core Engine uses strictly typed Pydantic v3 models. Agents MUST adhere to th
 {
   "prompt": "Extract the latest API version and breaking changes from the Next.js documentation.", // (Required) Raw intent
   "model": "gemini-3-flash", // (Optional) Default: gemini-3-flash
-  "context": {               // (Optional) Previous conversation state
+  "context": {                // (Optional) Previous conversation state
     "session_id": "uuid-v4",
     "history": [] 
   }
