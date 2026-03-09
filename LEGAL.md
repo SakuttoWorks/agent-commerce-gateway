@@ -1,6 +1,6 @@
 # Legal Disclaimer & Terms of Use
 
-**Last Updated:** March 8, 2026
+**Last Updated:** March 9, 2026
 
 ## 1. Scope of Service
 **Project GHOST SHIP** (hereinafter "the Service"), operated by Sakutto Works, provides a technical infrastructure for **web data normalization and formatting**. The Service processes publicly available web content into structured text formats (Markdown/JSON) to enhance compatibility with Large Language Models (LLMs) and RAG (Retrieval-Augmented Generation) pipelines.
@@ -28,6 +28,9 @@ The Service accesses only publicly available URLs or data provided by the user. 
 
 ## 5. Limitation of Liability
 To the maximum extent permitted by law, Sakutto Works shall not be liable for any direct, indirect, incidental, or consequential damages resulting from the use or inability to use the Service, including but not limited to damages for loss of profits, data, or other intangible losses.
+
+## 6. Service Fees & Billing
+Fees charged through the Service are solely for **technical resource consumption** (data processing, API bandwidth, and compute time). No portion of the fee is attributable to financial advice, market data access, or investment consulting.
 
 ---
 *By using Project GHOST SHIP, you agree to these terms. For inquiries regarding compliance, please contact the maintainers via GitHub.*
