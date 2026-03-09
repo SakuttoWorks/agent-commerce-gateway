@@ -37,6 +37,7 @@ mode = "smart"
 enabled = true
 
 # Analytics Engine Binding
+
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "gateway_access_logs"
