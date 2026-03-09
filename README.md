@@ -61,7 +61,7 @@ graph LR
 
 ## 🤖 Discovery for Agents
 
-* **Interactive Docs (Swagger)**: Human-readable API specs at https://www.google.com/search?q=https://api.sakutto.works/docs.
+* **Interactive Docs (Swagger)**: Human-readable API specs at https://api.sakutto.works/docs.
 * **Discovery Endpoint**: Technical specs are hosted at https://api.sakutto.works/llms.txt.
 * **MCP Server Definition**: Automated discovery at https://api.sakutto.works/.well-known/mcp.json.
 
