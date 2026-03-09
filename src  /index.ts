@@ -17,11 +17,8 @@ const app = new Hono<{ Bindings: Bindings }>()
 // ==========================================
 app.use('*', cors({
     origin: (origin) => {
-        // Allow local development environment
         if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
-        // Allow production environment (sakutto.works and subdomains)
         if (origin.endsWith('.sakutto.works') || origin === 'https://sakutto.works') return origin;
-        // Block others (Return production URL as valid origin to effectively reject browser access)
         return 'https://api.sakutto.works';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
@@ -34,36 +31,29 @@ app.use('*', cors({
 // ==========================================
 
 // Root: Landing Page (UI)
-app.get('/', (c) => {
-    return c.html(generateLandingPage());
-});
+app.get('/', (c) => c.html(generateLandingPage()));
 
 // Documentation: Context for AI Agents (Short)
-app.get('/llms.txt', (c) => {
-    return c.text(generateLLMsTxt());
-});
+app.get('/llms.txt', (c) => c.text(generateLLMsTxt()));
 
 // Documentation: Technical Specifications (Full)
-app.get('/llms-full.txt', (c) => {
-    return c.text(generateFullSpecs());
-});
+app.get('/llms-full.txt', (c) => c.text(generateFullSpecs()));
 
 // ==========================================
 // MCP Discovery: Integrated Agent Connection
 // ==========================================
 
-// Hardcoded MCP definition data
 const mcpResponse = {
-    "mcpVersion": "2026.1.0",
-    "name": "SakuttoWorks-Agent-Commerce-OS",
+    "mcpVersion": "2024.11.0",
+    "name": "SakuttoWorks-Data-Normalizer",
     "description": "Secure Edge Gateway for Data Normalization.",
     "version": "1.0.0",
     "server": {
         "type": "http-proxy",
         "url": "https://api.sakutto.works",
         "endpoints": {
-            "list_tools": "/api/v1/tools/list",
-            "call_tool": "/api/v1/tools/call"
+            "list_tools": "/v1/tools/list",
+            "call_tool": "/v1/normalize_web_data"
         }
     },
     "authentication": {
@@ -74,44 +64,28 @@ const mcpResponse = {
     },
     "tools": [
         {
-            "name": "analyze_intent",
-            "description": "[CORE] Parses natural language into structured JSON execution plans for data retrieval.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "prompt": { "type": "string" } },
-                "required": ["prompt"]
-            }
-        },
-        {
-            "name": "search_data",
-            "description": "High-fidelity autonomous research tool. Performs deep web scraping and returns structured Markdown/JSON.",
+            "name": "normalize_web_data",
+            "description": "Extracts and normalizes unstructured web data into structured Markdown/JSON. Use this for reading documentation or collecting public data.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string" },
-                    "depth": { "type": "string", "enum": ["standard", "deep"] }
-                },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "structured_data_etl",
-            "description": "Extracts and normalizes numerical data tables via Agent-Commerce-Core. Provides structured outputs for data science tasks.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "dataset_identifier": {
+                    "url": {
                         "type": "string",
-                        "description": "The target identifier (e.g., tech_specs, version_history) for the data set to process."
+                        "description": "The target public URL to normalize."
+                    },
+                    "format_type": {
+                        "type": "string",
+                        "description": "The output format: 'markdown' or 'json'.",
+                        "enum": ["markdown", "json"],
+                        "default": "markdown"
                     }
                 },
-                "required": ["dataset_identifier"]
+                "required": ["url"]
             }
         }
     ]
 };
 
-// Route all MCP discovery patterns
 app.get('/mcp', (c) => c.json(mcpResponse));
 app.get('/mcp/', (c) => c.json(mcpResponse));
 app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
@@ -121,8 +95,12 @@ app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
 // 3. Proxy Layer (Bridge to Cloud Run)
 // ==========================================
 
-app.all('/api/*', async (c) => {
-    // 1. Safety Guard: Check Environment Variables
+/**
+ * [修正ポイント]
+ * /v1/* に加え、/docs と /openapi.json も Cloud Run へ転送するように拡張しました。
+ */
+app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
+    // 1. Safety Guard
     if (!c.env.CORE_API_URL || !c.env.INTERNAL_AUTH_SECRET) {
         console.error("Missing Environment Variables");
         return c.json({
@@ -131,18 +109,17 @@ app.all('/api/*', async (c) => {
         }, 500);
     }
 
-    // 2. Construct Target URL (Prevent double slashes)
+    // 2. Construct Target URL
     const url = new URL(c.req.url);
-    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, ''); // Remove trailing slash
-    // Preserve path and query
+    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, '');
     const targetUrl = `${coreOrigin}${url.pathname}${url.search}`;
 
     // 3. Reconstruct Request Headers
     const proxyHeaders = new Headers(c.req.raw.headers);
     proxyHeaders.delete('Host');
-    proxyHeaders.delete('Cf-Connecting-Ip'); // Remove if necessary
+    proxyHeaders.delete('Cf-Connecting-Ip');
 
-    // Attach Internal Auth Secret (Verified by Core)
+    // Attach Internal Auth Secret
     proxyHeaders.set('X-Internal-Secret', c.env.INTERNAL_AUTH_SECRET);
 
     // 4. Create New Request
@@ -150,14 +127,12 @@ app.all('/api/*', async (c) => {
         method: c.req.method,
         headers: proxyHeaders,
         body: c.req.raw.body,
-        redirect: 'manual' // Let client handle redirects
+        redirect: 'manual'
     });
 
-    // 5. Execute Proxy Request to Cloud Run
+    // 5. Execute Proxy Request
     try {
         const response = await fetch(proxyRequest);
-
-        // Sanitize Response Headers (Gateway manages CORS, so we can filter others)
         const responseHeaders = new Headers(response.headers);
         responseHeaders.set('X-Served-By', 'Agent-Commerce-Gateway');
 
@@ -171,7 +146,7 @@ app.all('/api/*', async (c) => {
         console.error(`Proxy Error: ${error.message}`);
         return c.json({
             error: 'Upstream Unavailable',
-            message: 'The Core Engine (Layer B) is currently unreachable. Please try again later.'
+            message: 'The Data Normalization Engine is currently unreachable.'
         }, 502);
     }
 });
@@ -193,8 +168,8 @@ function generateLandingPage() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project GHOST SHIP | Data Gateway</title>
-    <meta name="description" content="Secure Edge Gateway for Agent-Commerce-OS. Handles protocol translation and quota management.">
+    <title>SakuttoWorks Data Gateway</title>
+    <meta name="description" content="Secure Edge Gateway for Data Normalization.">
     <meta name="robots" content="noindex, nofollow"> 
     <style>
         :root { --primary: #0f172a; --bg: #f8fafc; --text: #334155; }
@@ -208,12 +183,13 @@ function generateLandingPage() {
 </head>
 <body>
     <div class="card">
-        <h1>Agent-Commerce-Gateway</h1>
+        <h1>Data Normalization Gateway</h1>
         <div class="status">● System Operational</div>
         <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">
             Secure entry point for Project GHOST SHIP.<br>
             Authentication required for all API calls.
         </p>
+        <a href="/docs">📜 API Documentation (Swagger)</a>
         <a href="/llms.txt">📂 View Technical Specs (llms.txt)</a>
         <a href="https://sakutto.works">🌐 Project Home</a>
     </div>
@@ -226,115 +202,27 @@ function generateLLMsTxt() {
 
 ## Identity & Role
 - **System Name**: Agent-Commerce-OS (Ghost Ship)
-- **Role**: High-performance Data Normalization & Intent Extraction Engine.
+- **Role**: High-performance Data Normalization & ETL Engine.
 - **Operator**: SakuttoWorks (Infrastructure Provider)
 
-## ⚠️ Critical: Authentication Strategy
-To access Layer B (Core Engine) functions, you MUST provide a valid **Polar.sh API Key**.
-- **Header Format**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`
-- **Behavior**: Requests without this header will be rejected by the Edge Gateway (Layer A) with \`401 Unauthorized\`.
+## ⚠️ Authentication
+Layer B access requires a valid **Polar.sh API Key**.
+- **Header**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`
 - **Get Key**: https://polar.sh/sakuttoworks
 
-## API Endpoints (Hybrid Architecture)
+## API Endpoints
 - **Base URL**: \`https://api.sakutto.works\`
-- **MCP Discovery**: \`https://api.sakutto.works/.well-known/mcp.json\`
-  - Use this for automated tool discovery in Cursor/Claude Desktop.
-- **Intent Analysis (Layer B)**: \`POST /api/v1/agent/analyze\`
-  - The primary brain. Parses user prompts into actionable plans.
+- **Interactive Docs**: \`https://api.sakutto.works/docs\`
+- **Data Normalization**: \`POST /v1/normalize_web_data\`
 
-## Available Tools (MCP)
-1. **\`analyze_intent\`**:
-   - Parses unstructured prompts to identify necessary data formatting steps.
-2. **\`search_data\` (Tavily Integrated)**:
-   - Performs autonomous deep-web research and returns RAG-optimized markdown.
-3. **\`structured_data_etl\`**:
-   - Extracts and normalizes numerical data tables using Python/Pandas on Cloud Run.
-
-## Architecture Context (For Debugging)
-- **Layer A (Edge)**: Cloudflare Workers. Handles Auth & Routing.
-- **Layer B (Core)**: Google Cloud Run (Python 3.12+). Handles Heavy Compute.
-- **Compliance**: EU AI Act compliant. Logs are encrypted (A2A Logging).
-
-## Documentation
-- **Full Specs**: \`/llms-full.txt\` (Schema definitions)
-- **Source Code**: https://github.com/SakuttoWorks/agent-commerce-gateway
+## Tools
+1. **\`normalize_web_data\`**:
+   - Converts HTML/Web content into structured Markdown/JSON.
 `;
 }
 
 function generateFullSpecs() {
-    return `# Project GHOST SHIP: Full Technical Specification (v2026.1)
-
-> This document defines the I/O schemas and compliance protocols for the Agent-Commerce-OS Core Engine.
-
-## 1. Governance & Security (Zero Trust)
-- **Rate Limiting**: Enforced at Edge (Layer A). 
-  - Free Tier: 5 requests/min.
-  - Pro Tier: 60 requests/min (via Polar.sh entitlement).
-- **Header Requirement**: 
-  - \`Authorization: Bearer <POLAR_TOKEN>\`
-  - \`Content-Type: application/json\`
-
-## 2. Core API Schemas (Layer B)
-
-The Core Engine uses strictly typed Pydantic v3 models. Agents MUST adhere to these JSON structures.
-
-### Endpoint: POST /api/v1/agent/analyze
-
-#### Request Schema (Input)
-\`\`\`json
-{
-  "prompt": "Extract the latest API version and breaking changes from the Next.js documentation.", // (Required) Raw intent
-  "model": "gemini-3-flash", // (Optional) Default: gemini-3-flash
-  "context": {                // (Optional) Previous conversation state
-    "session_id": "uuid-v4",
-    "history": [] 
-  }
-}
-\`\`\`
-
-#### Response Schema (Output)
-\`\`\`json
-{
-  "intent_id": "evt_123456789",
-  "analysis": {
-    "primary_intent": "data_extraction",
-    "complexity_score": 0.85,  // 0.0 to 1.0
-    "suggested_tools": ["search_data", "structured_data_etl"]
-  },
-  "plan": [
-    {
-      "step": 1,
-      "tool": "search_data",
-      "query": "Next.js 16 breaking changes"
-    },
-    {
-      "step": 2,
-      "tool": "generate_report",
-      "format": "markdown"
-    }
-  ],
-  "usage": {
-    "compute_units": 15,    // Abstracted usage metric
-    "tokens": 450,
-    "processing_ms": 120
-  }
-}
-\`\`\`
-
-## 3. Error Handling Codes
-
-| Code | Meaning | Agent Action |
-| :--- | :--- | :--- |
-| **400** | Bad Request | Check JSON schema against the Request Schema above. |
-| **401** | Unauthorized | Renew Polar.sh API Key. |
-| **402** | Quota Exceeded | Usage limit reached. Check entitlement status. |
-| **429** | Too Many Requests | Backoff for 5-10 seconds. |
-| **502** | Bridge Error | Layer B (Cloud Run) is cold booting. Retry in 3s. |
-
-## 4. Compliance & Privacy (EU AI Act)
-- **Data Residency**: All compute occurs in \`asia-northeast1\` (Tokyo, Japan).
-- **Retention**: Input prompts are discarded after processing unless "Memory Mode" is explicitly enabled.
-- **A2A Logging**: All tool executions are logged to Supabase for audit trails (encrypted at rest).
-- **No Training**: User data is NEVER used to train the underlying Gemini models.
+    return `# Technical Specification v2026.1
+Full specs are available at https://api.sakutto.works/docs
 `;
 }
