@@ -96,8 +96,8 @@ app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
 // ==========================================
 
 /**
- * [修正ポイント]
- * /v1/* に加え、/docs と /openapi.json も Cloud Run へ転送するように拡張しました。
+ * [Update]
+ * Expanded proxy routing to forward /docs and /openapi.json to Cloud Run in addition to /v1/*.
  */
 app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
     // 1. Safety Guard
