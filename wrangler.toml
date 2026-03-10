@@ -20,7 +20,7 @@ routes = [
 ANALYTICS_DATASET_NAME = "gateway_access_logs"
 
 # Upstream Service URL (Layer B: Google Cloud Run)
-CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
+CORE_API_URL = "https://agent-commerce-core-xd36uwybpa-an.a.run.app/"
 
 # Environment Context (Strict Production Mode)
 ENVIRONMENT = "production"
