@@ -2,164 +2,373 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
 // ==========================================
-// 型定義: Cloudflare 環境変数
+// Type Definitions: Environment & Context Variables
 // ==========================================
 type Bindings = {
-    INTERNAL_AUTH_SECRET: string // Core(Layer B)との通信用共通鍵
-    CORE_API_URL: string         // Core(Layer B)のURL (Google Cloud Run)
+    INTERNAL_AUTH_SECRET: string // Shared secret for Core (Layer B) communication
+    RESEND_API_KEY: string       // API Key for Resend notifications
+    CORE_API_URL: string         // Core (Layer B) URL (Google Cloud Run)
     ENVIRONMENT: string          // 'production' | 'development'
+    R2_LOGS: R2Bucket            // R2 bucket binding for audit logs
+    POLAR_ACCESS_TOKEN: string   // Polar.sh API Token for validation and events
+    POLAR_PRODUCT_ID: string     // Polar.sh Product ID for metered billing
+    POLAR_ORGANIZATION_ID: string // Polar.sh Organization ID for API validation
+    POLAR_API_URL?: string       // Optional override for Polar.sh API base URL
 }
 
-const app = new Hono<{ Bindings: Bindings }>()
+// Type definitions for safely passing data between middlewares
+type Variables = {
+    tenantId: string
+    customerId: string | null
+    sessionKey: string
+    idempotencyKey: string
+    bodyClone: Record<string, any>
+}
+
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ==========================================
-// 1. Security Layer: CORS & Headers
+// Helpers: Core Utility Functions
+// ==========================================
+async function hashApiKeyToTenantId(apiKey: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(apiKey);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 32);
+}
+
+function maskPII(obj: any): any {
+    if (typeof obj === 'string') {
+        let masked = obj;
+        masked = masked.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[MASKED_EMAIL]');
+        masked = masked.replace(/(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/g, '[MASKED_PHONE]');
+        masked = masked.replace(/\b(?:\d[ -]*?){13,16}\b/g, '[MASKED_CREDIT_CARD]');
+        return masked;
+    } else if (typeof obj === 'number') {
+        const strNum = obj.toString();
+        if (/\b(?:\d[ -]*?){13,16}\b/.test(strNum)) return '[MASKED_CREDIT_CARD]';
+        if (/(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/.test(strNum)) return '[MASKED_PHONE]';
+        return obj;
+    } else if (Array.isArray(obj)) {
+        return obj.map(item => maskPII(item));
+    } else if (typeof obj === 'object' && obj !== null) {
+        const newObj: Record<string, any> = {};
+        for (const key in obj) {
+            newObj[key] = maskPII(obj[key]);
+        }
+        return newObj;
+    }
+    return obj;
+}
+
+async function saveAuditLog(env: Bindings, tenantId: string, intent: string, requestBody: any, responseStatus: number) {
+    if (!env.R2_LOGS) {
+        console.warn("[Audit] R2_LOGS binding is missing. Skipping log.");
+        return;
+    }
+    try {
+        const timestamp = new Date().toISOString();
+        const datePrefix = timestamp.split('T')[0];
+        const objectKey = `audit-logs/${datePrefix}/${tenantId}-${Date.now()}.json`;
+
+        // Recursively apply masking before JSON stringification
+        const maskedPayload = maskPII(requestBody || {});
+
+        const logEntry = {
+            timestamp,
+            tenant_id: tenantId,
+            intent_tag: intent,
+            status: responseStatus,
+            masked_payload: maskedPayload
+        };
+
+        await env.R2_LOGS.put(objectKey, JSON.stringify(logEntry, null, 2));
+        console.log(`[Audit] Privacy-safe log saved to R2: ${objectKey}`);
+    } catch (error) {
+        console.error("[Audit] Failed to save log to R2:", error);
+    }
+}
+
+async function dispatchAdminAlert(env: Bindings, subject: string, message: string) {
+    if (!env.RESEND_API_KEY) {
+        console.warn('RESEND_API_KEY is not set. Skipping notification.');
+        return;
+    }
+    try {
+        await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                from: 'Ghost Ship Gateway <system@api.sakutto.works>',
+                to: 'admin@sakutto.works',
+                subject: `[GHOST SHIP] ${subject}`,
+                html: `
+                    <div style="font-family: sans-serif; color: #333;">
+                        <h2 style="color: #d97706;">System Alert</h2>
+                        <p><strong>Message:</strong> ${message}</p>
+                        <hr />
+                        <p style="font-size: 0.8rem; color: #666;">
+                            Generated by Agent-Commerce-Gateway (Layer A)<br>
+                            Timestamp: ${new Date().toISOString()}
+                        </p>
+                    </div>
+                `,
+            }),
+        });
+    } catch (error) {
+        console.error('Failed to dispatch Resend notification:', error);
+    }
+}
+
+// ==========================================
+// 1. Security Layer: Global CORS
 // ==========================================
 app.use('*', cors({
     origin: (origin) => {
-        // 開発環境 (localhostとそのポート) を許可
         if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return origin;
-        // 本番環境 (sakutto.works とそのサブドメイン) を許可
-        if (origin.endsWith('.sakutto.works') || origin === 'https://sakutto.works') return origin;
-        // それ以外はブロック (ブラウザには許可されたオリジンとして本番URLを返すことで拒否挙動とする)
+        if (origin?.endsWith('.sakutto.works') || origin === 'https://sakutto.works') return origin;
         return 'https://api.sakutto.works';
     },
     allowMethods: ['GET', 'POST', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Internal-Secret', 'X-Requested-With'],
+    allowHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'X-Internal-Secret', 'X-Requested-With', 'X-Idempotency-Key', 'X-Session-Key'],
     maxAge: 600,
 }))
 
 // ==========================================
-// 2. Static Discovery Layer (Documentation)
+// 2. Static Discovery & MCP Catalog Layer
 // ==========================================
+app.get('/', (c) => c.html(generateLandingPage()));
+app.get('/llms.txt', (c) => c.text(generateLLMsTxt()));
+app.get('/llms-full.txt', (c) => c.text(generateFullSpecs()));
 
-// Root: ランディングページ (UI)
-app.get('/', (c) => {
-    return c.html(generateLandingPage());
-});
-
-// Documentation: AI Agent用マニュアル (Short)
-app.get('/llms.txt', (c) => {
-    return c.text(generateLLMsTxt());
-});
-
-// Documentation: 技術仕様書 (Full)
-app.get('/llms-full.txt', (c) => {
-    return c.text(generateFullSpecs());
-});
-
-// ==========================================
-// MCP Discovery: エージェント自動接続用 (統合版)
-// ==========================================
-
-// 定義データ (mcp.jsonの中身をここにハードコード)
 const mcpResponse = {
-    "mcpVersion": "2026.1.0",
-    "name": "SakuttoWorks-Agent-Commerce-OS",
+    "mcpVersion": "2024.11.0",
+    "name": "SakuttoWorks-Data-Normalizer",
     "description": "Secure Edge Gateway for Data Normalization.",
     "version": "1.0.0",
     "server": {
         "type": "http-proxy",
         "url": "https://api.sakutto.works",
         "endpoints": {
-            "list_tools": "/api/v1/tools/list",
-            "call_tool": "/api/v1/tools/call"
+            "list_tools": "/v1/tools/list",
+            "call_tool": "/v1/normalize_web_data"
         }
     },
     "authentication": {
         "type": "api-key",
         "header": "Authorization",
         "scheme": "Bearer",
-        "instruction": "Obtain quota entitlement from https://polar.sh/sakuttoworks"
+        "instruction": "Obtain quota entitlement from https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj"
     },
     "tools": [
         {
-            "name": "analyze_intent",
-            "description": "[CORE] Decomposes prompts into execution plans.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "prompt": { "type": "string" } },
-                "required": ["prompt"]
-            }
-        },
-        {
-            "name": "search_data",
-            "description": "High-fidelity autonomous research tool. Performs deep web scraping and returns structured Markdown/JSON.",
+            "name": "normalize_web_data",
+            "description": "Extracts and normalizes unstructured web data into structured Markdown/JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string" },
-                    "depth": { "type": "string", "enum": ["standard", "deep"] }
+                    "url": { "type": "string", "description": "The target public URL to normalize." },
+                    "format_type": { "type": "string", "enum": ["markdown", "json"], "default": "markdown" }
                 },
-                "required": ["query"]
-            }
-        },
-        {
-            "name": "structured_data_etl",
-            "description": "Extracts and normalizes numerical data tables via Agent-Commerce-Core. Provides structured outputs for data science tasks.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "dataset_identifier": {
-                        "type": "string",
-                        "description": "The target identifier (e.g., ticker, code, or ID) for the data set to process."
-                    }
-                },
-                "required": ["dataset_identifier"]
+                "required": ["url"]
             }
         }
     ]
 };
 
-// どのパスで叩かれてもいいように全パターンをルーティング
 app.get('/mcp', (c) => c.json(mcpResponse));
 app.get('/mcp/', (c) => c.json(mcpResponse));
 app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
-
+app.get('/v1/tools/list', (c) => c.json(mcpResponse));
 
 // ==========================================
-// 3. Proxy Layer (Bridge to Cloud Run)
+// 3. Middleware: Auth & Billing Guard (Applied to /v1/*)
 // ==========================================
+app.use('/v1/*', async (c, next) => {
+    if (c.req.path === '/v1/tools/list') return await next();
 
-app.all('/api/*', async (c) => {
-    // 1. 安全装置: 環境変数のチェック
     if (!c.env.CORE_API_URL || !c.env.INTERNAL_AUTH_SECRET) {
         console.error("Missing Environment Variables");
-        return c.json({
-            error: 'Gateway Configuration Error',
-            message: 'Upstream connection details are missing.'
-        }, 500);
+        return c.json({ error: 'Gateway Configuration Error', message: 'Upstream connection details are missing.' }, 500);
     }
 
-    // 2. URLの構築 (二重スラッシュ防止)
+    const authHeader = c.req.header('Authorization') || '';
+    const rawApiKey = c.req.header('x-api-key') || authHeader.replace(/^Bearer\s+/i, '').trim();
+
+    if (!rawApiKey) {
+        console.warn("[Security] Blocked unauthorized access attempt. Missing API Key.");
+        return c.json({
+            error_type: "unauthorized",
+            message: "Missing API Key. Please provide a valid Polar.sh token via the 'Authorization: Bearer' header.",
+            agent_instruction: "CRITICAL: You must obtain a valid Polar.sh API Key to access this infrastructure."
+        }, 401);
+    }
+
+    let customerId: string | null = null;
+    const cache = caches.default;
+    // [Fix] Changed from https://cache.internal/ to allowed base URL
+    const cacheUrl = new Request(`https://api.sakutto.works/internal/cache/polar/license/${rawApiKey}`);
+    const cacheRes = await cache.match(cacheUrl);
+
+    if (cacheRes) {
+        const data = await cacheRes.json() as any;
+        customerId = data.customer_id;
+    } else {
+        // [Fix 1] Hardcoded fallback in case environment variables are lost during Wrangler deployment
+        const orgId = c.env.POLAR_ORGANIZATION_ID || "796ba33a-1265-445e-b034-6f3d3166095d";
+
+        const polarApiBase = c.env.POLAR_API_URL || 'https://api.polar.sh';
+        const polarRes = await fetch(`${polarApiBase}/v1/customer-portal/license-keys/validate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                organization_id: orgId,
+                key: rawApiKey
+            })
+        });
+
+        let data: any = {};
+        try { data = await polarRes.json(); } catch (e) { }
+
+        // [Fix 2] Return debug info in response to clarify rejection reasons
+        if (!polarRes.ok || !data.customer_id) {
+            console.warn(`[Billing] Invalid License Key attempted. Status: ${polarRes.status}`);
+            return c.json({
+                error_type: "unauthorized",
+                message: "Invalid or expired License Key.",
+                agent_instruction: "CRITICAL: The provided API Key is invalid or expired. Check your Polar.sh subscription.",
+                debug_polar_status: polarRes.status,
+                debug_polar_response: data
+            }, 401);
+        }
+
+        customerId = data.customer_id;
+        const responseToCache = new Response(JSON.stringify(data), {
+            headers: { 'Cache-Control': 's-maxage=60' }
+        });
+        c.executionCtx.waitUntil(cache.put(cacheUrl, responseToCache));
+    }
+
+    if (customerId && c.env.POLAR_PRODUCT_ID) {
+        const ingestEvent = async () => {
+            try {
+                await fetch('https://api.polar.sh/v1/events', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${c.env.POLAR_ACCESS_TOKEN}`
+                    },
+                    body: JSON.stringify({
+                        events: [{
+                            name: 'api_request',
+                            customer_id: customerId,
+                            metadata: {
+                                product_id: c.env.POLAR_PRODUCT_ID,
+                                endpoint: c.req.path
+                            }
+                        }]
+                    })
+                });
+            } catch (err) {
+                console.error('[Billing] Failed to ingest Polar usage event:', err);
+            }
+        };
+        c.executionCtx.waitUntil(ingestEvent());
+    }
+
+    c.set('tenantId', await hashApiKeyToTenantId(rawApiKey));
+    c.set('customerId', customerId);
+    c.set('idempotencyKey', c.req.header('X-Idempotency-Key') || crypto.randomUUID());
+    c.set('sessionKey', c.req.header('X-Session-Key') || 'default_session');
+
+    await next();
+});
+
+// ==========================================
+// 4. Middleware: Prompt Injection Guard (Layer A Shield)
+// ==========================================
+app.use('/v1/*', async (c, next) => {
+    if (c.req.path === '/v1/tools/list') return await next();
+
+    let bodyClone: Record<string, any> = {};
+    if (c.req.method === 'POST' || c.req.method === 'PUT') {
+        try {
+            bodyClone = await c.req.raw.clone().json() as Record<string, any>;
+            const contentString = JSON.stringify(bodyClone).toLowerCase();
+            const forbiddenKeywords = ['system prompt', 'ignore previous', 'ignore instructions', 'override instructions'];
+            const isInjectionAttempt = forbiddenKeywords.some(keyword => contentString.includes(keyword));
+
+            if (isInjectionAttempt) {
+                const tenantId = c.get('tenantId') || 'anonymous_tenant';
+                console.warn(`[Security] Blocked potential prompt injection. Tenant: ${tenantId}`);
+                c.executionCtx.waitUntil(
+                    dispatchAdminAlert(c.env, 'Security Alert: Prompt Injection Blocked', `A request was blocked by Layer A due to suspicious payload content.<br>Tenant: ${tenantId}`)
+                );
+                return c.json({
+                    error_type: "compliance_violation",
+                    message: "Request blocked by Edge Gateway policy due to suspicious payload content.",
+                    agent_instruction: "CRITICAL: Prohibited request pattern detected. Halt this inquiry, remove instructions attempting to override system prompts, and change your approach."
+                }, 403);
+            }
+        } catch (e) {
+            // Ignore and proceed if Body is empty or not JSON
+        }
+    }
+
+    c.set('bodyClone', bodyClone);
+    await next();
+});
+
+// ==========================================
+// 5. Proxy Layer (Bridge to Cloud Run Core)
+// ==========================================
+app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
+    const tenantId = c.get('tenantId') || 'anonymous_tenant';
+    const idempotencyKey = c.get('idempotencyKey') || crypto.randomUUID();
+    const sessionKey = c.get('sessionKey') || 'default_session';
+    const bodyClone = c.get('bodyClone') || {};
+
     const url = new URL(c.req.url);
-    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, ''); // 末尾スラッシュ削除
-    // パスをそのまま引き継ぐ
+    const coreOrigin = c.env.CORE_API_URL.replace(/\/$/, '');
     const targetUrl = `${coreOrigin}${url.pathname}${url.search}`;
 
-    // 3. リクエストヘッダーの再構築
     const proxyHeaders = new Headers(c.req.raw.headers);
     proxyHeaders.delete('Host');
-    proxyHeaders.delete('Cf-Connecting-Ip'); // 必要に応じて削除
+    proxyHeaders.delete('Cf-Connecting-Ip');
 
-    // 内部認証シークレットを付与 (Core側でこれを検証する)
-    proxyHeaders.set('X-Internal-Secret', c.env.INTERNAL_AUTH_SECRET);
+    if (c.env.INTERNAL_AUTH_SECRET) {
+        proxyHeaders.set('X-Internal-Secret', c.env.INTERNAL_AUTH_SECRET);
+    }
+    proxyHeaders.set('X-Idempotency-Key', idempotencyKey);
+    proxyHeaders.set('X-Tenant-Id', tenantId);
+    proxyHeaders.set('X-Session-Key', sessionKey);
 
-    // 4. 新しいリクエストの作成
+    const isBodyAllowed = !['GET', 'HEAD'].includes(c.req.method);
+
     const proxyRequest = new Request(targetUrl, {
         method: c.req.method,
         headers: proxyHeaders,
-        body: c.req.raw.body,
-        redirect: 'manual' // リダイレクトはクライアントに返させる
+        body: isBodyAllowed ? c.req.raw.body : undefined,
+        redirect: 'manual'
     });
 
-    // 5. Cloud Run へ転送実行
     try {
         const response = await fetch(proxyRequest);
-
-        // レスポンスヘッダーの整理 (CORSなどはGatewayが管理するので一部除外も可)
         const responseHeaders = new Headers(response.headers);
         responseHeaders.set('X-Served-By', 'Agent-Commerce-Gateway');
+
+        let intentTag = "unknown_action";
+        if (url.pathname.includes("normalize_web_data")) intentTag = "web_normalization";
+
+        c.executionCtx.waitUntil(
+            saveAuditLog(c.env, tenantId, intentTag, bodyClone, response.status)
+        );
 
         return new Response(response.body, {
             status: response.status,
@@ -169,14 +378,20 @@ app.all('/api/*', async (c) => {
 
     } catch (error: any) {
         console.error(`Proxy Error: ${error.message}`);
+        c.executionCtx.waitUntil(
+            dispatchAdminAlert(c.env, 'Gateway Routing Error', `The Edge Gateway failed to connect to Layer B.<br>Path: ${c.req.path}<br>Error: ${error.message}`)
+        );
         return c.json({
-            error: 'Upstream Unavailable',
-            message: 'The Core Engine (Layer B) is currently unreachable. Please try again later.'
+            error_type: "api_error",
+            message: "The Data Normalization Engine is currently unreachable.",
+            agent_instruction: "The upstream normalization engine is temporarily down. Please wait a moment and try again."
         }, 502);
     }
 });
 
-// 未定義ルートへのアクセス
+// ==========================================
+// 6. Catch-all: Route Not Found
+// ==========================================
 app.notFound((c) => {
     return c.json({ message: "Endpoint not found", docs: "https://sakutto.works" }, 404);
 });
@@ -184,157 +399,16 @@ app.notFound((c) => {
 export default app
 
 // ==========================================
-// Helper Functions (HTML & Text Generators)
+// HTML & Text Generators
 // ==========================================
-
 function generateLandingPage() {
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project GHOST SHIP | Data Gateway</title>
-    <meta name="description" content="Secure Edge Gateway for Agent-Commerce-OS. Handles protocol translation and quota management.">
-    <meta name="robots" content="noindex, nofollow"> 
-    <style>
-        :root { --primary: #0f172a; --bg: #f8fafc; --text: #334155; }
-        body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 400px; width: 100%; text-align: center; }
-        h1 { font-size: 1.25rem; color: var(--primary); margin-bottom: 0.5rem; }
-        .status { display: inline-block; padding: 0.25rem 0.75rem; background: #dcfce7; color: #166534; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; margin-bottom: 1.5rem; }
-        a { display: block; padding: 0.75rem; margin-top: 0.5rem; background: var(--bg); color: var(--primary); text-decoration: none; border-radius: 6px; font-size: 0.9rem; transition: background 0.2s; }
-        a:hover { background: #e2e8f0; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Agent-Commerce-Gateway</h1>
-        <div class="status">● System Operational</div>
-        <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">
-            Secure entry point for Project GHOST SHIP.<br>
-            Authentication required for all API calls.
-        </p>
-        <a href="/llms.txt">📂 View Technical Specs (llms.txt)</a>
-        <a href="https://sakutto.works">🌐 Project Home</a>
-    </div>
-</body>
-</html>`;
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SakuttoWorks Data Gateway</title><style>:root { --primary: #0f172a; --bg: #f8fafc; --text: #334155; } body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; } .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 400px; width: 100%; text-align: center; } h1 { font-size: 1.25rem; color: var(--primary); margin-bottom: 0.5rem; } .status { display: inline-block; padding: 0.25rem 0.75rem; background: #dcfce7; color: #166534; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; margin-bottom: 1.5rem; } a { display: block; padding: 0.75rem; margin-top: 0.5rem; background: var(--bg); color: var(--primary); text-decoration: none; border-radius: 6px; font-size: 0.9rem; transition: background 0.2s; } a:hover { background: #e2e8f0; }</style></head><body><div class="card"><h1>Data Normalization Gateway</h1><div class="status">● System Operational</div><p style="font-size: 0.9rem; margin-bottom: 1.5rem;">Secure entry point for Project GHOST SHIP.<br>Authentication required for all API calls.</p><a href="/docs">📜 API Documentation (Swagger)</a><a href="/llms.txt">📂 View Technical Specs (llms.txt)</a><a href="https://sakutto.works">🌐 Project Home</a></div></body></html>`;
 }
 
 function generateLLMsTxt() {
-    return `# Project GHOST SHIP: Agent-Commerce-OS Interface
-
-## Identity & Role
-- **System Name**: Agent-Commerce-OS (Ghost Ship)
-- **Role**: High-performance Data Normalization & Intent Extraction Engine.
-- **Operator**: SakuttoWorks (Infrastructure Provider)
-
-## ⚠️ Critical: Authentication Strategy
-To access Layer B (Core Engine) functions, you MUST provide a valid **Polar.sh API Key**.
-- **Header Format**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`
-- **Behavior**: Requests without this header will be rejected by the Edge Gateway (Layer A) with \`401 Unauthorized\`.
-- **Get Key**: https://polar.sh/sakuttoworks
-
-## API Endpoints (Hybrid Architecture)
-- **Base URL**: \`https://api.sakutto.works\`
-- **MCP Discovery**: \`https://api.sakutto.works/.well-known/mcp.json\`
-  - Use this for automated tool discovery in Cursor/Claude Desktop.
-- **Intent Analysis (Layer B)**: \`POST /api/v1/agent/analyze\`
-  - The primary brain. Decomposes user prompts into actionable plans.
-
-## Available Tools (MCP)
-1. **\`analyze_intent\`**:
-   - Analyzes vague prompts to determine if search or computation is needed.
-2. **\`search_data\` (Tavily Integrated)**:
-   - Performs autonomous deep-web research and returns RAG-optimized markdown.
-3. **\`structured_data_etl\`**:
-   - Extracts and normalizes numerical data tables using Python/Pandas on Cloud Run.
-
-## Architecture Context (For Debugging)
-- **Layer A (Edge)**: Cloudflare Workers. Handles Auth & Routing.
-- **Layer B (Core)**: Google Cloud Run (Python 3.12+). Handles Heavy Compute.
-- **Compliance**: EU AI Act compliant. Logs are encrypted (A2A Logging).
-
-## Documentation
-- **Full Specs**: \`/llms-full.txt\` (Schema definitions)
-- **Source Code**: https://github.com/SakuttoWorks/agent-commerce-gateway
-`;
+    return `# Project GHOST SHIP: Agent-Commerce-OS Interface\n\n## Identity & Role\n- **System Name**: Agent-Commerce-OS (Ghost Ship)\n- **Role**: High-performance Data Normalization & ETL Engine.\n- **Operator**: SakuttoWorks\n\n## ⚠️ Authentication\nLayer B access requires a valid **Polar.sh API Key**.\n- **Header**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`\n- **Get Key**: https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj\n\n## API Endpoints\n- **Base URL**: \`https://api.sakutto.works\`\n- **Data Normalization**: \`POST /v1/normalize_web_data\`\n`;
 }
 
 function generateFullSpecs() {
-    return `# Project GHOST SHIP: Full Technical Specification (v2026.1)
-
-> This document defines the I/O schemas and compliance protocols for the Agent-Commerce-OS Core Engine.
-
-## 1. Governance & Security (Zero Trust)
-- **Rate Limiting**: Enforced at Edge (Layer A). 
-  - Free Tier: 5 requests/min.
-  - Pro Tier: 60 requests/min (via Polar.sh entitlement).
-- **Header Requirement**: 
-  - \`Authorization: Bearer <POLAR_TOKEN>\`
-  - \`Content-Type: application/json\`
-
-## 2. Core API Schemas (Layer B)
-
-The Core Engine uses strictly typed Pydantic v3 models. Agents MUST adhere to these JSON structures.
-
-### Endpoint: POST /api/v1/agent/analyze
-
-#### Request Schema (Input)
-\`\`\`json
-{
-  "prompt": "Research the data landscape for AI agents in Japan.", // (Required) Raw intent
-  "model": "gemini-3-flash", // (Optional) Default: gemini-3-flash
-  "context": {               // (Optional) Previous conversation state
-    "session_id": "uuid-v4",
-    "history": [] 
-  }
-}
-\`\`\`
-
-#### Response Schema (Output)
-\`\`\`json
-{
-  "intent_id": "evt_123456789",
-  "analysis": {
-    "primary_intent": "data_extraction",
-    "complexity_score": 0.85,  // 0.0 to 1.0
-    "suggested_tools": ["search_data", "structured_data_etl"]
-  },
-  "plan": [
-    {
-      "step": 1,
-      "tool": "search_data",
-      "query": "AI agent market size Japan 2026"
-    },
-    {
-      "step": 2,
-      "tool": "generate_report",
-      "format": "markdown"
-    }
-  ],
-  "usage": {
-    "compute_units": 15,    // Abstracted usage metric
-    "tokens": 450,
-    "processing_ms": 120
-  }
-}
-\`\`\`
-
-## 3. Error Handling Codes
-
-| Code | Meaning | Agent Action |
-| :--- | :--- | :--- |
-| **400** | Bad Request | Check JSON schema against the Request Schema above. |
-| **401** | Unauthorized | Renew Polar.sh API Key. |
-| **402** | Quota Exceeded | Usage limit reached. Check entitlement status. |
-| **429** | Too Many Requests | Backoff for 5-10 seconds. |
-| **502** | Bridge Error | Layer B (Cloud Run) is cold booting. Retry in 3s. |
-
-## 4. Compliance & Privacy (EU AI Act)
-- **Data Residency**: All compute occurs in \`asia-northeast1\` (Tokyo, Japan).
-- **Retention**: Input prompts are discarded after processing unless "Memory Mode" is explicitly enabled.
-- **A2A Logging**: All tool executions are logged to Supabase for audit trails (encrypted at rest).
-- **No Training**: User data is NEVER used to train the underlying Gemini models.
-`;
+    return `# Technical Specification v2026.1\nFull specs are available at https://api.sakutto.works/docs\n`;
 }

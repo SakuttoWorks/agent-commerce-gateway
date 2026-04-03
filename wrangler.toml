@@ -1,50 +1,61 @@
 compatibility_date = "2026-03-03"
+compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
 name = "agent-commerce-gateway"
 
-# 【修正】TypeScript (Hono) なので Python フラグは削除し、Node互換のみにします
-compatibility_flags = ["nodejs_compat"]
+# =========================================================
+# ▼ Routing Configuration (Custom Domain)
+# =========================================================
+routes = [
+  {pattern = "api.sakutto.works", custom_domain = true},
+]
 
-# Cloudflare の最適化配置設定
+# =========================================================
+# ▼ Public Environment Variables (Non-sensitive)
+# =========================================================
+[vars]
+# Upstream Service URL (Layer B: Google Cloud Run)
+# Note: For local development, this is overridden by .dev.vars
+CORE_API_URL = "https://agent-commerce-core-xd36uwybpa-an.a.run.app/"
+
+# Environment Context (Strict Production Mode)
+ENVIRONMENT = "production"
+
+# [Priority 3] Monetization Configuration (Polar.sh)
+# Product ID for metered billing
+POLAR_ORGANIZATION_ID = "796ba33a-1265-445e-b034-6f3d3166095d"
+POLAR_PRODUCT_ID = "a9a6d457-a2c6-4e1e-a2f8-60c6ef1cfcdd"
+
+# =========================================================
+# ▼ Infrastructure Optimization
+# =========================================================
+# Smart Placement: Optimizes latency by moving execution closer to upstream Core
 [placement]
 mode = "smart"
 
-# 可観測性の設定
+# Observability & Logging
 [observability]
 enabled = true
 
-# 分析エンジンの設定（共通）
-[[analytics_engine_datasets]]
-binding = "ANALYTICS"
-# 【修正】"intent" (意図) を排除し、単なるアクセスログに見せます
-dataset = "gateway_access_logs"
+# =========================================================
+# ▼ Bindings (Storage)
+# =========================================================
+# R2 Storage Binding for Privacy-Safe Audit Logs [Phase 3-5: Task 8]
+[[r2_buckets]]
+binding = "R2_LOGS"
+bucket_name = "ghost-ship-logs"
 
 # =========================================================
-# ▼ デフォルト設定 (ローカル開発用: wrangler dev)
+# ▼ Required Secrets (DO NOT HARDCODE HERE)
 # =========================================================
-[vars]
-# ローカル開発用
-ANALYTICS_DATASET_NAME = "gateway_access_logs_dev"
-CORE_API_URL = "http://127.0.0.1:8000"
-ENVIRONMENT = "development"
-
-# =========================================================
-# ▼ 本番環境設定 (デプロイ用: --env production)
-# =========================================================
-[env.production]
-name = "agent-commerce-gateway-prod"
-
-# 【重要】本番用ルーティング (api.sakutto.works)
-[[env.production.routes]]
-custom_domain = true
-pattern = "api.sakutto.works"
-
-[env.production.vars]
-# Google Cloud Run (Layer B) との接続URL
-ANALYTICS_DATASET_NAME = "gateway_access_logs"
-CORE_API_URL = "https://agent-commerce-core-1003638625345.asia-northeast1.run.app"
-ENVIRONMENT = "production"
-
-[[env.production.analytics_engine_datasets]]
-binding = "ANALYTICS"
-dataset = "gateway_access_logs"
+# The following variables must be injected securely via Cloudflare Dashboard
+# or by running the following Wrangler CLI commands:
+#
+# $ npx wrangler secret put INTERNAL_AUTH_SECRET
+# $ npx wrangler secret put RESEND_API_KEY
+# $ npx wrangler secret put POLAR_ACCESS_TOKEN
+#
+# [Secrets Dictionary]
+# INTERNAL_AUTH_SECRET : Shared secret to authenticate Edge (Layer A) -> Core (Layer B)
+# RESEND_API_KEY       : API Key for Resend to trigger async admin notifications
+# POLAR_ACCESS_TOKEN   : [Priority 3] Polar.sh API Token for validation and events

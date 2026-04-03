@@ -1,6 +1,51 @@
+# ==========================================
+# Cloudflare Wrangler & Serverless
+# ==========================================
 .wrangler/
+
+# ==========================================
+# Environment Variables & Secrets (CRITICAL)
+# ==========================================
 .dev.vars
 .env
+.env.*
+!.env.example
+*.pem
+
+# ==========================================
+# Node.js & Dependencies
+# ==========================================
 node_modules/
-package-lock.json
-vscode起動時に毎回すること.txt
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+pnpm-debug.log
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+.pytest_cache/
+coverage/
+.nyc_output/
+
+# ==========================================
+# OS Generated Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ==========================================
+# IDE & Editors
+# ==========================================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
