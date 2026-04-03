@@ -49,7 +49,7 @@ Billing is handled natively at the edge, ensuring zero latency overhead for AI a
 ---
 
 ## 🧪 End-to-End Observability & Audit Logs
-The infrastructure maintains strict privacy-safe logging to R2 buckets, ensuring full observability while adhering to data protection standards. It has passed comprehensive security and functional testing.
+The infrastructure maintains strict privacy-safe logging to R2 buckets, ensuring full observability while adhering to data protection standards. It has undergone rigorous manual security and functional validation.
 
 ### ✅ Normal Traffic (200 OK)
 Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to Layer B, and logs the execution.
@@ -70,7 +70,7 @@ Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to 
 ## 🚫 Prompt Injection Guard (403 Forbidden)
 Successfully intercepts and drops malicious payloads (e.g., "ignore previous instructions") at the edge. This ensures zero compute cost and zero load on Layer B for non-compliant requests.
 
-### JSON
+### 🛑 Blocked Traffic (403 Forbidden)
 ```json
 {
   "timestamp": "2026-03-XXT10:05:12Z",
@@ -107,7 +107,7 @@ curl -X POST "https://api.sakutto.works/v1/normalize_web_data" \
 ## 📑 Table of Contents
 - [Core Features](#-core-features)
 - [Role in Infrastructure (Defense in Depth)](#️-role-in-infrastructure-defense-in-depth)
-- [Asynchronous Metered Billing Flow](#-asynchronous-metered-billing-flow)
+- [Asynchronous Metered Billing](#-asynchronous-metered-billing)
 - [End-to-End Observability & Audit Logs](#-end-to-end-observability--audit-logs)
 - [Prompt Injection Guard (403 Forbidden)](#-prompt-injection-guard-403-forbidden)
 - [Tech Stack (Edge Specifications)](#️-tech-stack-edge-specifications)
