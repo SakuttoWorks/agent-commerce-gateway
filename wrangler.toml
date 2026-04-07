@@ -59,3 +59,4 @@ bucket_name = "ghost-ship-logs"
 # INTERNAL_AUTH_SECRET : Shared secret to authenticate Edge (Layer A) -> Core (Layer B)
 # RESEND_API_KEY       : API Key for Resend to trigger async admin notifications
 # POLAR_ACCESS_TOKEN   : [Priority 3] Polar.sh API Token for validation and events
+# POLAR_WEBHOOK_SECRET : Secret for verifying incoming webhooks from Polar.sh
