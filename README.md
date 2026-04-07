@@ -192,7 +192,7 @@ For major architectural changes, please open an Issue first to discuss your prop
 ## 🤖 Discovery for Agents
 
 * **Interactive Docs (Swagger)**: Human-readable API specs at [https://api.sakutto.works/docs](https://api.sakutto.works/docs).
-* **Discovery Endpoint**: Technical specs are hosted at [https://api.sakutto.works/llms.txt](https://api.sakutto.works/llms.txt).
+* **Discovery Endpoint**: Canonical technical specs are hosted at the portal [https://sakutto.works/llms.txt](https://sakutto.works/llms.txt) and [https://sakutto.works/openapi.yaml](https://sakutto.works/openapi.yaml). (Edge Gateway redirects automatically).
 * **MCP Server Definition**: Automated discovery at [https://api.sakutto.works/.well-known/mcp.json](https://api.sakutto.works/.well-known/mcp.json).
 
 ---
