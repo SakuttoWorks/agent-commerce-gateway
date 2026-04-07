@@ -142,8 +142,11 @@ app.use('*', cors({
 // 2. Static Discovery & MCP Catalog Layer
 // ==========================================
 app.get('/', (c) => c.html(generateLandingPage()));
-app.get('/llms.txt', (c) => c.text(generateLLMsTxt()));
-app.get('/llms-full.txt', (c) => c.text(generateFullSpecs()));
+
+// Redirect AI crawlers to the canonical AEO resources on the Portal
+app.get('/llms.txt', (c) => c.redirect('https://sakutto.works/llms.txt', 301));
+app.get('/llms-full.txt', (c) => c.redirect('https://sakutto.works/llms-full.txt', 301));
+app.get('/openapi.yaml', (c) => c.redirect('https://sakutto.works/openapi.yaml', 301));
 
 const mcpResponse = {
     "mcpVersion": "2024.11.0",
@@ -444,12 +447,4 @@ export default app
 // ==========================================
 function generateLandingPage() {
     return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SakuttoWorks Data Gateway</title><style>:root { --primary: #0f172a; --bg: #f8fafc; --text: #334155; } body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; } .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 400px; width: 100%; text-align: center; } h1 { font-size: 1.25rem; color: var(--primary); margin-bottom: 0.5rem; } .status { display: inline-block; padding: 0.25rem 0.75rem; background: #dcfce7; color: #166534; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; margin-bottom: 1.5rem; } a { display: block; padding: 0.75rem; margin-top: 0.5rem; background: var(--bg); color: var(--primary); text-decoration: none; border-radius: 6px; font-size: 0.9rem; transition: background 0.2s; } a:hover { background: #e2e8f0; }</style></head><body><div class="card"><h1>Data Normalization Gateway</h1><div class="status">● System Operational</div><p style="font-size: 0.9rem; margin-bottom: 1.5rem;">Secure entry point for Project GHOST SHIP.<br>Authentication required for all API calls.</p><a href="/docs">📜 API Documentation (Swagger)</a><a href="/llms.txt">📂 View Technical Specs (llms.txt)</a><a href="https://sakutto.works">🌐 Project Home</a></div></body></html>`;
-}
-
-function generateLLMsTxt() {
-    return `# Project GHOST SHIP: Agent-Commerce-OS Interface\n\n## Identity & Role\n- **System Name**: Agent-Commerce-OS (Ghost Ship)\n- **Role**: High-performance Data Normalization & ETL Engine.\n- **Operator**: SakuttoWorks\n\n## ⚠️ Authentication\nLayer B access requires a valid **Polar.sh API Key**.\n- **Header**: \`Authorization: Bearer <YOUR_POLAR_KEY>\`\n- **Get Key**: https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj\n\n## API Endpoints\n- **Base URL**: \`https://api.sakutto.works\`\n- **Data Normalization**: \`POST /v1/normalize_web_data\`\n`;
-}
-
-function generateFullSpecs() {
-    return `# Technical Specification v2026.1\nFull specs are available at https://api.sakutto.works/docs\n`;
 }
