@@ -92,7 +92,7 @@ async function saveAuditLog(env: Bindings, tenantId: string, intent: string, req
 
 async function dispatchAdminAlert(env: Bindings, subject: string, message: string) {
     if (!env.RESEND_API_KEY) {
-        console.warn('RESEND_API_KEY is not set. Skipping notification.');
+        console.warn('[Notification] RESEND_API_KEY is not set. Skipping admin alert.');
         return;
     }
     try {
@@ -120,7 +120,7 @@ async function dispatchAdminAlert(env: Bindings, subject: string, message: strin
             }),
         });
     } catch (error) {
-        console.error('Failed to dispatch Resend notification:', error);
+        console.error('[Notification] Failed to dispatch Resend alert:', error);
     }
 }
 
@@ -192,7 +192,7 @@ app.use('/v1/*', async (c, next) => {
     if (c.req.path === '/v1/tools/list') return await next();
 
     if (!c.env.CORE_API_URL || !c.env.INTERNAL_AUTH_SECRET) {
-        console.error("Missing Environment Variables");
+        console.error("[Gateway] Missing Environment Variables");
         return c.json({ error: 'Gateway Configuration Error', message: 'Upstream connection details are missing.' }, 500);
     }
 
@@ -210,7 +210,6 @@ app.use('/v1/*', async (c, next) => {
 
     let customerId: string | null = null;
     const cache = caches.default;
-    // [Fix] Changed from https://cache.internal/ to allowed base URL
     const cacheUrl = new Request(`https://api.sakutto.works/internal/cache/polar/license/${rawApiKey}`);
     const cacheRes = await cache.match(cacheUrl);
 
@@ -218,9 +217,7 @@ app.use('/v1/*', async (c, next) => {
         const data = await cacheRes.json() as any;
         customerId = data.customer_id;
     } else {
-        // [Fix 1] Hardcoded fallback in case environment variables are lost during Wrangler deployment
         const orgId = c.env.POLAR_ORGANIZATION_ID || "796ba33a-1265-445e-b034-6f3d3166095d";
-
         const polarApiBase = c.env.POLAR_API_URL || 'https://api.polar.sh';
         const polarRes = await fetch(`${polarApiBase}/v1/customer-portal/license-keys/validate`, {
             method: 'POST',
@@ -236,7 +233,6 @@ app.use('/v1/*', async (c, next) => {
         let data: any = {};
         try { data = await polarRes.json(); } catch (e) { }
 
-        // [Fix 2] Return debug info in response to clarify rejection reasons
         if (!polarRes.ok || !data.customer_id) {
             console.warn(`[Billing] Invalid License Key attempted. Status: ${polarRes.status}`);
             return c.json({
@@ -258,7 +254,10 @@ app.use('/v1/*', async (c, next) => {
     if (customerId && c.env.POLAR_PRODUCT_ID) {
         const ingestEvent = async () => {
             try {
-                await fetch('https://api.polar.sh/v1/events', {
+                const polarApiBase = c.env.POLAR_API_URL || 'https://api.polar.sh';
+                // [Fix] Corrected endpoint for Polar.sh events ingestion
+                const ingestUrl = `${polarApiBase}/v1/events/ingest`;
+                const response = await fetch(ingestUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -275,8 +274,13 @@ app.use('/v1/*', async (c, next) => {
                         }]
                     })
                 });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[Billing] Polar usage ingest failed with status ${response.status}: ${errorText}`);
+                }
             } catch (err) {
-                console.error('[Billing] Failed to ingest Polar usage event:', err);
+                console.error('[Billing] Failed to execute Polar usage ingest fetch:', err);
             }
         };
         c.executionCtx.waitUntil(ingestEvent());
@@ -326,7 +330,44 @@ app.use('/v1/*', async (c, next) => {
 });
 
 // ==========================================
-// 5. Proxy Layer (Bridge to Cloud Run Core)
+// 5. Endpoint: Asynchronous Support Ticket
+// ==========================================
+app.post('/v1/support/ticket', async (c) => {
+    const tenantId = c.get('tenantId') || 'anonymous_tenant';
+    const customerId = c.get('customerId') || 'unknown_customer';
+    const bodyClone = c.get('bodyClone') || {};
+
+    const { subject, message, priority = 'normal' } = bodyClone;
+
+    if (!subject || !message) {
+        return c.json({
+            error_type: "bad_request",
+            message: "Missing required fields: 'subject' and 'message'."
+        }, 400);
+    }
+
+    // Compose SLA alert template
+    const alertSubject = `[Support Ticket] ${priority === 'high' ? 'URGENT - ' : ''}${subject}`;
+    const alertMessage = `
+        <strong>Tenant ID:</strong> ${tenantId}<br>
+        <strong>Customer ID:</strong> ${customerId}<br>
+        <strong>SLA Target:</strong> 48-72 hours<br><br>
+        <strong>Message:</strong><br>
+        <p>${message}</p>
+    `;
+
+    // Dispatch to administrators via Resend
+    c.executionCtx.waitUntil(dispatchAdminAlert(c.env, alertSubject, alertMessage));
+
+    return c.json({
+        success: true,
+        message: "Support ticket successfully created. Our engineering team will review and respond within our 48-72 hour SLA.",
+        ticket_reference: c.get('idempotencyKey')
+    });
+});
+
+// ==========================================
+// 6. Proxy Layer (Bridge to Cloud Run Core)
 // ==========================================
 app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
     const tenantId = c.get('tenantId') || 'anonymous_tenant';
@@ -377,7 +418,7 @@ app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
         });
 
     } catch (error: any) {
-        console.error(`Proxy Error: ${error.message}`);
+        console.error(`[Proxy] Routing Error: ${error.message}`);
         c.executionCtx.waitUntil(
             dispatchAdminAlert(c.env, 'Gateway Routing Error', `The Edge Gateway failed to connect to Layer B.<br>Path: ${c.req.path}<br>Error: ${error.message}`)
         );
@@ -390,7 +431,7 @@ app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
 });
 
 // ==========================================
-// 6. Catch-all: Route Not Found
+// 7. Catch-all: Route Not Found
 // ==========================================
 app.notFound((c) => {
     return c.json({ message: "Endpoint not found", docs: "https://sakutto.works" }, 404);

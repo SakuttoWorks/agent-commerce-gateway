@@ -19,6 +19,7 @@
 * **Metered Billing Integration:** Seamless integration with Polar.sh for latency-free, asynchronous usage tracking.
 * **Privacy-First Audit Logging:** Masks PII (Personally Identifiable Information) natively at the edge and securely stores logs in Cloudflare R2.
 * **High Availability:** Built on Cloudflare Workers with Smart Placement for minimal latency routing to Google Cloud Run.
+* **Asynchronous SLA Routing:** Intelligent routing capabilities at the Edge Layer designed to support and manage long-running tasks requiring asynchronous fulfillment (48-72 hour SLA).
 
 ---
 
@@ -43,7 +44,7 @@ Billing is handled natively at the edge, ensuring zero latency overhead for AI a
 
 * **Validation:** Extracts the API key from the `Authorization: Bearer` header and verifies it via Polar.sh (or the internal Edge Cache).
 * **Proxy Routing:** Securely forwards the validated request to Layer B.
-* **Event Ingestion:** Leverages Cloudflare's `executionCtx.waitUntil()` to asynchronously dispatch an `api_request` event to the Polar.sh API.
+* **Event Ingestion:** Leverages Cloudflare's `executionCtx.waitUntil()` to asynchronously dispatch an `api_request` event to the Polar.sh Metering API. Uses the latest Polar.sh SDK standards to ensure highly reliable and accurate per-call usage tracking without blocking the user response.
 * **Resilience:** In the event of a billing telemetry failure, the agent still receives the normalized data, guaranteeing 100% user-facing uptime.
 
 ---
@@ -143,6 +144,7 @@ Configuration is split between public environment variables (configured directly
 | `INTERNAL_AUTH_SECRET` | Shared secret for securely authenticating Edge (Layer A) to Core (Layer B). |
 | `RESEND_API_KEY` | API key for dispatching asynchronous admin security alerts via Resend. |
 | `POLAR_ACCESS_TOKEN` | Polar.sh API Token for validating licenses and ingesting billing events. |
+| `POLAR_WEBHOOK_SECRET` | Secret for verifying incoming webhooks from Polar.sh (e.g., subscription updates or metering validation). |
 
 ### 2. Local Development & Infrastructure Setup
 
@@ -158,6 +160,7 @@ Create a `.dev.vars` file in the root directory. You must supply the following r
 INTERNAL_AUTH_SECRET="your_core_auth_secret"
 RESEND_API_KEY="your_resend_key"
 POLAR_ACCESS_TOKEN="your_polar_token"
+POLAR_WEBHOOK_SECRET="your_polar_webhook_secret"
 ```
 
 **Start the local development server:**
