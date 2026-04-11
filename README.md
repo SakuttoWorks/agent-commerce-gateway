@@ -17,7 +17,8 @@
 * **AI Agent Ready:** Native support for Model Context Protocol (MCP) tool discovery and API key authentication.
 * **Zero-Trust Edge Security:** Actively blocks Prompt Injection attempts (e.g., `ignore previous instructions`) before they hit the core engine.
 * **Metered Billing Integration:** Seamless integration with Polar.sh for latency-free, asynchronous usage tracking.
-* **Privacy-First Audit Logging:** Masks PII (Personally Identifiable Information) natively at the edge and securely stores logs in Cloudflare R2.
+* **Global Edge Caching:** Utilizes Cloudflare KV to cache Polar.sh API validations, dramatically reducing upstream latency and redundant external API calls.
+* **EU AI Act Compliant Transparency Logging:** Automatically generates enterprise-grade audit trails with "Intent Watermarks" and native PII masking, securely stored in Cloudflare R2.
 * **High Availability:** Built on Cloudflare Workers with Smart Placement for minimal latency routing to Google Cloud Run.
 * **Asynchronous SLA Routing:** Intelligent routing capabilities at the Edge Layer designed to support and manage long-running tasks requiring asynchronous fulfillment (48-72 hour SLA).
 
@@ -42,7 +43,7 @@ graph TD
 ## 💸 Asynchronous Metered Billing
 Billing is handled natively at the edge, ensuring zero latency overhead for AI agent requests.
 
-* **Validation:** Extracts the API key from the `Authorization: Bearer` header and verifies it via Polar.sh (or the internal Edge Cache).
+* **Validation:** Extracts the API key from the `Authorization: Bearer` header and verifies it via a highly available **Cloudflare KV Edge Cache** (falling back to Polar.sh on cache misses) for ultra-low latency authentication..
 * **Proxy Routing:** Securely forwards the validated request to Layer B.
 * **Event Ingestion:** Leverages Cloudflare's `executionCtx.waitUntil()` to asynchronously dispatch an `api_request` event to the Polar.sh Metering API. Uses the latest Polar.sh SDK standards to ensure highly reliable and accurate per-call usage tracking without blocking the user response.
 * **Resilience:** In the event of a billing telemetry failure, the agent still receives the normalized data, guaranteeing 100% user-facing uptime.
@@ -57,12 +58,29 @@ Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to 
 
 ```json
 {
-  "timestamp": "2026-03-XXT10:00:00Z",
-  "level": "INFO",
-  "event": "proxy_success",
-  "tenant_id": "8f3a...291b",
-  "status": 200,
-  "billing_event": "queued"
+  "metadata": {
+    "log_id": "beebdda9-2526-42c9-828f-e2ef7f3b9699",
+    "timestamp": "2026-04-11T10:00:00.000Z",
+    "tenant_id": "89286fb3507612f3c7fd1b96b311977c",
+    "system_version": "GhostShip-Gateway/2.0",
+    "processing_region": "global-edge"
+  },
+  "intent_watermark": {
+    "purpose": "web_normalization",
+    "automated_decision_making": false,
+    "human_oversight_required": false
+  },
+  "execution": {
+    "upstream_status": 200,
+    "masked_payload": {
+      "url": "https://example.com",
+      "format_type": "json"
+    }
+  },
+  "compliance": {
+    "data_retention_policy": "30_days",
+    "pii_masked": true
+  }
 }
 ```
 
@@ -148,11 +166,19 @@ Configuration is split between public environment variables (configured directly
 
 ### 2. Local Development & Infrastructure Setup
 
-**Step 2a: Create an R2 Bucket (Required for Audit Logs)**
-Before running or deploying, you must create the R2 bucket defined in `wrangler.toml`:
+**Step 2a: Create Infrastructure Bindings (R2 & KV)**
+Before running or deploying, you must create the required R2 bucket for audit logs and the KV namespace for edge caching.
+
+1. Create the R2 Bucket:
 ```bash
 npx wrangler r2 bucket create ghost-ship-logs
 ```
+
+2. Create the KV Namespace:
+```bash
+npx wrangler kv namespace create POLAR_CACHE_KV
+```
+*(Note: After creating the KV namespace, copy the generated `id` and update the `[[kv_namespaces]]` section in your `wrangler.toml`).*
 
 **Step 2b: Configure Secrets**
 Create a `.dev.vars` file in the root directory. You must supply the following required secrets to mirror the production environment:

@@ -10,6 +10,7 @@ type Bindings = {
     CORE_API_URL: string         // Core (Layer B) URL (Google Cloud Run)
     ENVIRONMENT: string          // 'production' | 'development'
     R2_LOGS: R2Bucket            // R2 bucket binding for audit logs
+    POLAR_CACHE_KV: KVNamespace  // Global Edge Cache for API key validations
     POLAR_ACCESS_TOKEN: string   // Polar.sh API Token for validation and events
     POLAR_PRODUCT_ID: string     // Polar.sh Product ID for metered billing
     POLAR_ORGANIZATION_ID: string // Polar.sh Organization ID for API validation
@@ -62,6 +63,7 @@ function maskPII(obj: any): any {
     return obj;
 }
 
+// Phase 4: Enterprise Transparency Logs (EU AI Act Compliant)
 async function saveAuditLog(env: Bindings, tenantId: string, intent: string, requestBody: any, responseStatus: number) {
     if (!env.R2_LOGS) {
         console.warn("[Audit] R2_LOGS binding is missing. Skipping log.");
@@ -70,21 +72,38 @@ async function saveAuditLog(env: Bindings, tenantId: string, intent: string, req
     try {
         const timestamp = new Date().toISOString();
         const datePrefix = timestamp.split('T')[0];
-        const objectKey = `audit-logs/${datePrefix}/${tenantId}-${Date.now()}.json`;
+        const logId = crypto.randomUUID();
+        const objectKey = `transparency-logs/${datePrefix}/${tenantId}-${logId}.json`;
 
         // Recursively apply masking before JSON stringification
         const maskedPayload = maskPII(requestBody || {});
 
+        // EU AI Act Compliant Transparency Log Structure
         const logEntry = {
-            timestamp,
-            tenant_id: tenantId,
-            intent_tag: intent,
-            status: responseStatus,
-            masked_payload: maskedPayload
+            metadata: {
+                log_id: logId,
+                timestamp: timestamp,
+                tenant_id: tenantId,
+                system_version: "GhostShip-Gateway/2.0",
+                processing_region: "global-edge"
+            },
+            intent_watermark: {
+                purpose: intent,
+                automated_decision_making: false, // Explicitly state no ADM for compliance
+                human_oversight_required: false
+            },
+            execution: {
+                upstream_status: responseStatus,
+                masked_payload: maskedPayload
+            },
+            compliance: {
+                data_retention_policy: "30_days",
+                pii_masked: true
+            }
         };
 
         await env.R2_LOGS.put(objectKey, JSON.stringify(logEntry, null, 2));
-        console.log(`[Audit] Privacy-safe log saved to R2: ${objectKey}`);
+        console.log(`[Audit] Transparency log saved to R2: ${objectKey}`);
     } catch (error) {
         console.error("[Audit] Failed to save log to R2:", error);
     }
@@ -148,6 +167,13 @@ app.get('/llms.txt', (c) => c.redirect('https://sakutto.works/llms.txt', 301));
 app.get('/llms-full.txt', (c) => c.redirect('https://sakutto.works/llms-full.txt', 301));
 app.get('/openapi.yaml', (c) => c.redirect('https://sakutto.works/openapi.yaml', 301));
 
+// ==========================================
+// 2.5 Health Check Endpoint (RapidAPI Monitor)
+// ==========================================
+app.get('/v1/health', (c) => {
+    return c.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 const mcpResponse = {
     "mcpVersion": "2024.11.0",
     "name": "SakuttoWorks-Data-Normalizer",
@@ -189,10 +215,11 @@ app.get('/.well-known/mcp.json', (c) => c.json(mcpResponse));
 app.get('/v1/tools/list', (c) => c.json(mcpResponse));
 
 // ==========================================
-// 3. Middleware: Auth & Billing Guard (Applied to /v1/*)
+// 3. Middleware: Auth & KV Edge Caching [Phase 4: Step 2]
 // ==========================================
 app.use('/v1/*', async (c, next) => {
-    if (c.req.path === '/v1/tools/list') return await next();
+    // Exclude /v1/tools/list and /v1/health from authentication
+    if (c.req.path === '/v1/tools/list' || c.req.path === '/v1/health') return await next();
 
     if (!c.env.CORE_API_URL || !c.env.INTERNAL_AUTH_SECRET) {
         console.error("[Gateway] Missing Environment Variables");
@@ -211,15 +238,18 @@ app.use('/v1/*', async (c, next) => {
         }, 401);
     }
 
+    const tenantId = await hashApiKeyToTenantId(rawApiKey);
     let customerId: string | null = null;
-    const cache = caches.default;
-    const cacheUrl = new Request(`https://api.sakutto.works/internal/cache/polar/license/${rawApiKey}`);
-    const cacheRes = await cache.match(cacheUrl);
 
-    if (cacheRes) {
-        const data = await cacheRes.json() as any;
-        customerId = data.customer_id;
+    // Utilize Cloudflare KV for high-availability distributed caching
+    const kvCacheKey = `license_cache:${tenantId}`;
+    const cachedLicense = c.env.POLAR_CACHE_KV ? await c.env.POLAR_CACHE_KV.get(kvCacheKey, 'json') : null;
+
+    if (cachedLicense) {
+        customerId = (cachedLicense as any).customer_id;
+        console.log(`[Cache] KV Edge Cache HIT for tenant: ${tenantId}`);
     } else {
+        console.log(`[Cache] KV Edge Cache MISS. Validating upstream for tenant: ${tenantId}`);
         const orgId = c.env.POLAR_ORGANIZATION_ID || "796ba33a-1265-445e-b034-6f3d3166095d";
         const polarApiBase = c.env.POLAR_API_URL || 'https://api.polar.sh';
         const polarRes = await fetch(`${polarApiBase}/v1/customer-portal/license-keys/validate`, {
@@ -248,17 +278,19 @@ app.use('/v1/*', async (c, next) => {
         }
 
         customerId = data.customer_id;
-        const responseToCache = new Response(JSON.stringify(data), {
-            headers: { 'Cache-Control': 's-maxage=60' }
-        });
-        c.executionCtx.waitUntil(cache.put(cacheUrl, responseToCache));
+
+        // Asynchronously populate KV cache for 60 seconds (reduces Polar.sh API costs)
+        if (c.env.POLAR_CACHE_KV) {
+            c.executionCtx.waitUntil(
+                c.env.POLAR_CACHE_KV.put(kvCacheKey, JSON.stringify(data), { expirationTtl: 60 })
+            );
+        }
     }
 
     if (customerId && c.env.POLAR_PRODUCT_ID) {
         const ingestEvent = async () => {
             try {
                 const polarApiBase = c.env.POLAR_API_URL || 'https://api.polar.sh';
-                // [Fix] Corrected endpoint for Polar.sh events ingestion
                 const ingestUrl = `${polarApiBase}/v1/events/ingest`;
                 const response = await fetch(ingestUrl, {
                     method: 'POST',
@@ -289,7 +321,7 @@ app.use('/v1/*', async (c, next) => {
         c.executionCtx.waitUntil(ingestEvent());
     }
 
-    c.set('tenantId', await hashApiKeyToTenantId(rawApiKey));
+    c.set('tenantId', tenantId);
     c.set('customerId', customerId);
     c.set('idempotencyKey', c.req.header('X-Idempotency-Key') || crypto.randomUUID());
     c.set('sessionKey', c.req.header('X-Session-Key') || 'default_session');
@@ -301,7 +333,8 @@ app.use('/v1/*', async (c, next) => {
 // 4. Middleware: Prompt Injection Guard (Layer A Shield)
 // ==========================================
 app.use('/v1/*', async (c, next) => {
-    if (c.req.path === '/v1/tools/list') return await next();
+    // Exclude /v1/tools/list and /v1/health from injection checks
+    if (c.req.path === '/v1/tools/list' || c.req.path === '/v1/health') return await next();
 
     let bodyClone: Record<string, any> = {};
     if (c.req.method === 'POST' || c.req.method === 'PUT') {
@@ -373,6 +406,11 @@ app.post('/v1/support/ticket', async (c) => {
 // 6. Proxy Layer (Bridge to Cloud Run Core)
 // ==========================================
 app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
+    // Stop proxying for endpoints handled directly by this Gateway
+    if (c.req.path === '/v1/health' || c.req.path === '/v1/tools/list' || c.req.path === '/v1/support/ticket') {
+        return;
+    }
+
     const tenantId = c.get('tenantId') || 'anonymous_tenant';
     const idempotencyKey = c.get('idempotencyKey') || crypto.randomUUID();
     const sessionKey = c.get('sessionKey') || 'default_session';

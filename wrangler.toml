@@ -38,12 +38,19 @@ mode = "smart"
 enabled = true
 
 # =========================================================
-# ▼ Bindings (Storage)
+# ▼ Bindings (Storage & Cache)
 # =========================================================
-# R2 Storage Binding for Privacy-Safe Audit Logs [Phase 3-5: Task 8]
+# R2 Storage Binding for Privacy-Safe Audit Logs [Phase 4: Step 2]
 [[r2_buckets]]
 binding = "R2_LOGS"
 bucket_name = "ghost-ship-logs"
+
+# KV Namespace for Global Edge Caching (Polar.sh Validations) [Phase 4: Step 2]
+[[kv_namespaces]]
+binding = "POLAR_CACHE_KV"
+# Note: Replace this ID with your actual KV ID after running: 
+# $ npx wrangler kv:namespace create POLAR_CACHE_KV
+id = "f6813d81b02f42c0bdd99fa0688a40ef"
 
 # =========================================================
 # ▼ Required Secrets (DO NOT HARDCODE HERE)
