@@ -11,6 +11,7 @@
 .env.*
 !.env.example
 *.pem
+wrangler.toml
 
 # ==========================================
 # Node.js & Dependencies

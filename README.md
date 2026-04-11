@@ -21,6 +21,8 @@
 * **EU AI Act Compliant Transparency Logging:** Automatically generates enterprise-grade audit trails with "Intent Watermarks" and native PII masking, securely stored in Cloudflare R2.
 * **High Availability:** Built on Cloudflare Workers with Smart Placement for minimal latency routing to Google Cloud Run.
 * **Asynchronous SLA Routing:** Intelligent routing capabilities at the Edge Layer designed to support and manage long-running tasks requiring asynchronous fulfillment (48-72 hour SLA).
+* **Dynamic Rate Limiting:** Built-in protection against infinite loop resource exploitation via Cloudflare Workers Rate Limiting (429 Too Many Requests).
+* **Autonomous Error Resolution:** Native 402 Payment Required handling with embedded top-up URLs, allowing AI agents to guide users through budget deficits without human support intervention.
 
 ---
 
@@ -32,8 +34,11 @@ We employ a **Zero-Trust Hybrid Architecture** to ensure speed, security, and sc
 graph TD
     A[🤖 AI Agent / Client] -->|HTTP POST| B(Layer A: Edge Gateway)
     B -->|1. Auth Validate| Cache[(CF Cache)]
-    B -->|2. Prompt Injection Guard| Shield{Block/Pass}
-    Shield -->|Pass| C[3. Inject X-Internal-Secret]
+    B -->|2. Rate Limiter| Rate{Limit Exceeded?}
+    Rate -->|Yes| 429[Drop: 429 Too Many Requests]
+    Rate -->|No| Shield{Prompt Injection?}
+    Shield -->|Yes| 403[Drop: 403 Forbidden]
+    Shield -->|No| C[3. Inject X-Internal-Secret]
     C -->|Proxy Request| D(Layer B: Core Engine)
     C -.->|4. executionCtx.waitUntil| P[Polar.sh Metered Billing]
 ```
@@ -88,6 +93,28 @@ Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to 
 
 ## 🚫 Prompt Injection Guard (403 Forbidden)
 Successfully intercepts and drops malicious payloads (e.g., "ignore previous instructions") at the edge. This ensures zero compute cost and zero load on Layer B for non-compliant requests.
+
+## 🚦 Autonomous Rate Limiting & Billing (429 & 402)
+Designed specifically for AI Agent integration, the Gateway returns explicit instructions and recovery URLs inside the payload. This allows LLMs to self-correct or prompt the human user for billing resolution automatically.
+
+### 💸 Budget Deficit (402 Payment Required)
+```json
+{
+  "error_type": "payment_required",
+  "message": "Quota exceeded or subscription inactive. Payment required.",
+  "agent_instruction": "CRITICAL: Budget deficit. To continue, you must resolve the payment issue by visiting the top-up URL.",
+  "top_up_url": "https://buy.polar.sh/..."
+}
+```
+
+### 🛑 Rate Limit Breached (429 Too Many Requests)
+```json
+{
+  "error_type": "too_many_requests",
+  "message": "Rate limit exceeded. System protection engaged to prevent resource exploitation.",
+  "agent_instruction": "CRITICAL: You are executing operations too rapidly or are caught in an infinite loop. Halt immediately and back off."
+}
+```
 
 ### 🛑 Blocked Traffic (403 Forbidden)
 ```json

@@ -6,25 +6,29 @@ name = "agent-commerce-gateway"
 # =========================================================
 # ▼ Routing Configuration (Custom Domain)
 # =========================================================
+# TODO: Replace with your actual custom domain. 
+# If you are using the default workers.dev domain, you can comment this block out.
 routes = [
-  {pattern = "api.sakutto.works", custom_domain = true},
+  {pattern = "api.your-domain.com", custom_domain = true},
 ]
 
 # =========================================================
 # ▼ Public Environment Variables (Non-sensitive)
 # =========================================================
 [vars]
-# Upstream Service URL (Layer B: Google Cloud Run)
+# Upstream Service URL (Layer B: Google Cloud Run or other backend)
 # Note: For local development, this is overridden by .dev.vars
-CORE_API_URL = "https://agent-commerce-core-xd36uwybpa-an.a.run.app/"
+# TODO: Replace with your actual backend URL
+CORE_API_URL = "https://your-backend-service-url.com/"
 
 # Environment Context (Strict Production Mode)
 ENVIRONMENT = "production"
 
 # [Priority 3] Monetization Configuration (Polar.sh)
 # Product ID for metered billing
-POLAR_ORGANIZATION_ID = "796ba33a-1265-445e-b034-6f3d3166095d"
-POLAR_PRODUCT_ID = "a9a6d457-a2c6-4e1e-a2f8-60c6ef1cfcdd"
+# TODO: Replace with your Polar.sh Organization and Product IDs
+POLAR_ORGANIZATION_ID = "your-polar-organization-id"
+POLAR_PRODUCT_ID = "your-polar-product-id"
 
 # =========================================================
 # ▼ Infrastructure Optimization
@@ -38,32 +42,36 @@ mode = "smart"
 enabled = true
 
 # =========================================================
-# ▼ Bindings (Storage & Cache)
+# ▼ Bindings (Storage, Cache & Limits)
 # =========================================================
 # R2 Storage Binding for Privacy-Safe Audit Logs [Phase 4: Step 2]
+# TODO: Create an R2 bucket and set the name here
 [[r2_buckets]]
 binding = "R2_LOGS"
-bucket_name = "ghost-ship-logs"
+bucket_name = "your-r2-bucket-name"
 
 # KV Namespace for Global Edge Caching (Polar.sh Validations) [Phase 4: Step 2]
+# TODO: Create a KV namespace and set the ID here 
+# (Run `npx wrangler kv:namespace create POLAR_CACHE_KV` to generate an ID)
 [[kv_namespaces]]
 binding = "POLAR_CACHE_KV"
-# Note: Replace this ID with your actual KV ID after running: 
-# $ npx wrangler kv:namespace create POLAR_CACHE_KV
-id = "f6813d81b02f42c0bdd99fa0688a40ef"
+id = "your-kv-namespace-id"
+
+# Strict Rate Limiting (Workers Rate Limiting API) [Phase 4: Step 3]
+[[ratelimits]]
+name = "RATE_LIMITER" 
+namespace_id = "1001" # Any unique string ID of your choice
+
+[ratelimits.simple]
+# TODO: Adjust these limits for your production environment
+limit = 100 # Number of requests allowed (set to 100 for production)
+period = 60 # Period in seconds (must be 10 or 60 according to Cloudflare specs)
 
 # =========================================================
 # ▼ Required Secrets (DO NOT HARDCODE HERE)
 # =========================================================
-# The following variables must be injected securely via Cloudflare Dashboard
-# or by running the following Wrangler CLI commands:
-#
+# The following secrets must be securely set in your Cloudflare environment.
+# Run the following commands to configure them:
 # $ npx wrangler secret put INTERNAL_AUTH_SECRET
 # $ npx wrangler secret put RESEND_API_KEY
 # $ npx wrangler secret put POLAR_ACCESS_TOKEN
-#
-# [Secrets Dictionary]
-# INTERNAL_AUTH_SECRET : Shared secret to authenticate Edge (Layer A) -> Core (Layer B)
-# RESEND_API_KEY       : API Key for Resend to trigger async admin notifications
-# POLAR_ACCESS_TOKEN   : [Priority 3] Polar.sh API Token for validation and events
-# POLAR_WEBHOOK_SECRET : Secret for verifying incoming webhooks from Polar.sh
