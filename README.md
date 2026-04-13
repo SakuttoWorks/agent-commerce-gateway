@@ -65,6 +65,7 @@ Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to 
 {
   "metadata": {
     "log_id": "beebdda9-2526-42c9-828f-e2ef7f3b9699",
+    "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff",
     "timestamp": "2026-04-11T10:00:00.000Z",
     "tenant_id": "89286fb3507612f3c7fd1b96b311977c",
     "system_version": "GhostShip-Gateway/2.0",
@@ -103,7 +104,8 @@ Designed specifically for AI Agent integration, the Gateway returns explicit ins
   "error_type": "payment_required",
   "message": "Quota exceeded or subscription inactive. Payment required.",
   "agent_instruction": "CRITICAL: Budget deficit. To continue, you must resolve the payment issue by visiting the top-up URL.",
-  "top_up_url": "https://buy.polar.sh/..."
+  "top_up_url": "https://buy.polar.sh/...",
+  "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff"
 }
 ```
 
@@ -112,19 +114,18 @@ Designed specifically for AI Agent integration, the Gateway returns explicit ins
 {
   "error_type": "too_many_requests",
   "message": "Rate limit exceeded. System protection engaged to prevent resource exploitation.",
-  "agent_instruction": "CRITICAL: You are executing operations too rapidly or are caught in an infinite loop. Halt immediately and back off."
+  "agent_instruction": "CRITICAL: You are executing operations too rapidly or are caught in an infinite loop. Halt immediately and back off.",
+  "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff"
 }
 ```
 
 ### 🛑 Blocked Traffic (403 Forbidden)
 ```json
 {
-  "timestamp": "2026-03-XXT10:05:12Z",
-  "level": "WARN",
-  "event": "security_violation",
-  "reason": "Prompt Injection Attempt Blocked",
-  "tenant_id": "anonymous_tenant",
-  "status": 403
+  "error_type": "compliance_violation",
+  "message": "Request blocked by Edge Gateway policy due to suspicious payload content.",
+  "agent_instruction": "CRITICAL: Prohibited request pattern detected. Halt this inquiry and change your approach.",
+  "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff"
 }
 ```
 
