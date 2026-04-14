@@ -9,7 +9,7 @@ name = "agent-commerce-gateway"
 # TODO: Replace with your actual custom domain. 
 # If you are using the default workers.dev domain, you can comment this block out.
 routes = [
-  {pattern = "api.your-domain.com", custom_domain = true},
+  {pattern = "api.sakutto.works", custom_domain = true},
 ]
 
 # =========================================================
@@ -19,7 +19,7 @@ routes = [
 # Upstream Service URL (Layer B: Google Cloud Run or other backend)
 # Note: For local development, this is overridden by .dev.vars
 # TODO: Replace with your actual backend URL
-CORE_API_URL = "https://your-backend-service-url.com/"
+CORE_API_URL = "https://agent-commerce-core-xd36uwybpa-an.a.run.app/"
 
 # Environment Context (Strict Production Mode)
 ENVIRONMENT = "production"

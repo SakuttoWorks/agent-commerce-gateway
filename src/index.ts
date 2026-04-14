@@ -30,6 +30,20 @@ type Variables = {
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // ==========================================
+// Constants: Regex Patterns for PII Masking
+// ==========================================
+const PII_PATTERNS = {
+    EMAIL: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
+    PHONE_GLOBAL: /(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/g,
+    CC_GLOBAL: /\b(?:\d[ -]*?){13,16}\b/g
+};
+
+const PII_PATTERNS_SINGLE = {
+    PHONE: /(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/,
+    CREDIT_CARD: /\b(?:\d[ -]*?){13,16}\b/
+};
+
+// ==========================================
 // Helpers: Core Utility Functions
 // ==========================================
 async function hashApiKeyToTenantId(apiKey: string): Promise<string> {
@@ -42,25 +56,31 @@ async function hashApiKeyToTenantId(apiKey: string): Promise<string> {
 
 function maskPII(obj: any): any {
     if (typeof obj === 'string') {
-        let masked = obj;
-        masked = masked.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[MASKED_EMAIL]');
-        masked = masked.replace(/(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/g, '[MASKED_PHONE]');
-        masked = masked.replace(/\b(?:\d[ -]*?){13,16}\b/g, '[MASKED_CREDIT_CARD]');
-        return masked;
-    } else if (typeof obj === 'number') {
+        return obj
+            .replace(PII_PATTERNS.EMAIL, '[MASKED_EMAIL]')
+            .replace(PII_PATTERNS.PHONE_GLOBAL, '[MASKED_PHONE]')
+            .replace(PII_PATTERNS.CC_GLOBAL, '[MASKED_CREDIT_CARD]');
+    }
+
+    if (typeof obj === 'number') {
         const strNum = obj.toString();
-        if (/\b(?:\d[ -]*?){13,16}\b/.test(strNum)) return '[MASKED_CREDIT_CARD]';
-        if (/(?:\+?\d{1,3}[-\s]?)?0?\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4}/.test(strNum)) return '[MASKED_PHONE]';
+        if (PII_PATTERNS_SINGLE.CREDIT_CARD.test(strNum)) return '[MASKED_CREDIT_CARD]';
+        if (PII_PATTERNS_SINGLE.PHONE.test(strNum)) return '[MASKED_PHONE]';
         return obj;
-    } else if (Array.isArray(obj)) {
-        return obj.map(item => maskPII(item));
-    } else if (typeof obj === 'object' && obj !== null) {
+    }
+
+    if (Array.isArray(obj)) {
+        return obj.map(maskPII);
+    }
+
+    if (typeof obj === 'object' && obj !== null) {
         const newObj: Record<string, any> = {};
-        for (const key in obj) {
-            newObj[key] = maskPII(obj[key]);
+        for (const [key, value] of Object.entries(obj)) {
+            newObj[key] = maskPII(value);
         }
         return newObj;
     }
+
     return obj;
 }
 
@@ -268,7 +288,11 @@ app.use('/v1/*', async (c, next) => {
         });
 
         let data: any = {};
-        try { data = await polarRes.json(); } catch (e) { }
+        try {
+            data = await polarRes.json();
+        } catch (e) {
+            // Ignore parse error; fallback to empty object
+        }
 
         if (!polarRes.ok || !data.customer_id) {
             if (polarRes.status === 402 || data.error === 'PaymentRequired' || data.error?.toLowerCase().includes('quota')) {
@@ -313,7 +337,9 @@ app.use('/v1/*', async (c, next) => {
                         }]
                     })
                 });
-            } catch (err) { }
+            } catch (err) {
+                // Silently ignore telemetry failure to ensure agent uptime
+            }
         };
         c.executionCtx.waitUntil(ingestEvent());
     }
@@ -352,7 +378,9 @@ app.use('/v1/*', async (c, next) => {
                     trace_id: c.get('traceId')
                 }, 403);
             }
-        } catch (e) { }
+        } catch (e) {
+            // Ignore parsing error for non-JSON bodies
+        }
     }
 
     c.set('bodyClone', bodyClone);

@@ -76,10 +76,10 @@ Successfully validates the Polar.sh key, appends Zero-Trust headers, proxies to 
     "automated_decision_making": false,
     "human_oversight_required": false
   },
-  "execution": {
+"execution": {
     "upstream_status": 200,
     "masked_payload": {
-      "url": "https://example.com",
+      "url": "https://sakutto.works",
       "format_type": "json"
     }
   },
@@ -104,7 +104,7 @@ Designed specifically for AI Agent integration, the Gateway returns explicit ins
   "error_type": "payment_required",
   "message": "Quota exceeded or subscription inactive. Payment required.",
   "agent_instruction": "CRITICAL: Budget deficit. To continue, you must resolve the payment issue by visiting the top-up URL.",
-  "top_up_url": "https://buy.polar.sh/...",
+  "top_up_url": "https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj",
   "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff"
 }
 ```
