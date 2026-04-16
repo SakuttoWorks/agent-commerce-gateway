@@ -15,6 +15,13 @@ type Bindings = {
     POLAR_PRODUCT_ID: string
     POLAR_ORGANIZATION_ID: string
     POLAR_API_URL?: string
+    POLAR_BOT_API_KEY?: string
+
+    // Keep-alive & Health Check configurations
+    KEEPALIVE_TARGET_URL?: string
+    CUSTOM_PROXY_HOST?: string
+    CUSTOM_PROXY_API_KEY?: string
+
     RATE_LIMITER: { limit: (options: { key: string }) => Promise<{ success: boolean }> }
 }
 
@@ -474,8 +481,66 @@ app.all('/:path{(v1/.*|docs|openapi.json)}', async (c) => {
 
 app.notFound((c) => c.json({ message: "Endpoint not found", docs: "https://sakutto.works" }, 404));
 
-export default app
-
 function generateLandingPage() {
     return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>SakuttoWorks Data Gateway</title><style>:root { --primary: #0f172a; --bg: #f8fafc; --text: #334155; } body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; } .card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 400px; width: 100%; text-align: center; } h1 { font-size: 1.25rem; color: var(--primary); margin-bottom: 0.5rem; } .status { display: inline-block; padding: 0.25rem 0.75rem; background: #dcfce7; color: #166534; border-radius: 9999px; font-size: 0.75rem; font-weight: bold; margin-bottom: 1.5rem; } a { display: block; padding: 0.75rem; margin-top: 0.5rem; background: var(--bg); color: var(--primary); text-decoration: none; border-radius: 6px; font-size: 0.9rem; transition: background 0.2s; } a:hover { background: #e2e8f0; }</style></head><body><div class="card"><h1>Data Normalization Gateway</h1><div class="status">● System Operational</div><p style="font-size: 0.9rem; margin-bottom: 1.5rem;">Secure entry point for Project GHOST SHIP.<br>Authentication required for all API calls.</p><a href="/docs">📜 API Documentation (Swagger)</a><a href="/llms.txt">📂 View Technical Specs (llms.txt)</a><a href="https://sakutto.works">🌐 Project Home</a></div></body></html>`;
 }
+
+// ==========================================
+// Application Export (Fetch & Scheduled Events)
+// ==========================================
+export default {
+    fetch: app.fetch,
+
+    // Scheduled event to prevent cold starts and verify upstream health
+    async scheduled(event: any, env: Bindings, ctx: any) {
+        if (!env.POLAR_BOT_API_KEY) {
+            console.error("[Keep-Alive] ABORT: Internal Bot API Key is not configured.");
+            return;
+        }
+
+        const targetUrl = env.KEEPALIVE_TARGET_URL || 'https://api.sakutto.works/v1/normalize_web_data';
+        const isExternalProxy = new URL(targetUrl).hostname !== 'api.sakutto.works';
+
+        console.log(`[Keep-Alive] Initiating scheduled health check against: ${targetUrl}`);
+
+        const requestHeaders: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${env.POLAR_BOT_API_KEY}`
+        };
+
+        // Inject custom proxy headers if configured (e.g., for routing through external API gateways)
+        if (env.CUSTOM_PROXY_API_KEY) requestHeaders['X-RapidAPI-Key'] = env.CUSTOM_PROXY_API_KEY;
+        if (env.CUSTOM_PROXY_HOST) requestHeaders['X-RapidAPI-Host'] = env.CUSTOM_PROXY_HOST;
+
+        try {
+            let res: Response;
+
+            if (!isExternalProxy) {
+                // Internal routing: Bypass Cloudflare network loop limits (prevent 522 error)
+                const internalRequest = new Request(targetUrl, {
+                    method: 'POST',
+                    headers: requestHeaders,
+                    body: JSON.stringify({ url: 'https://example.com', format_type: 'markdown' })
+                });
+                res = await app.fetch(internalRequest, env, ctx);
+            } else {
+                // External routing: Verifying public ingress via configured proxy
+                res = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: requestHeaders,
+                    body: JSON.stringify({ url: 'https://example.com', format_type: 'markdown' })
+                });
+            }
+
+            if (res.ok) {
+                console.log(`[Keep-Alive] SUCCESS: Health check passed. Status: ${res.status}`);
+            } else {
+                console.error(`[Keep-Alive] FAILED: Target returned status ${res.status}`);
+                const errorText = await res.text();
+                console.error(`[Keep-Alive] Error Details: ${errorText}`);
+            }
+        } catch (error) {
+            console.error("[Keep-Alive] CRITICAL FAILURE: Execution exception occurred.", error);
+        }
+    }
+};
