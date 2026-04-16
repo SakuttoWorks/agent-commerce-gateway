@@ -31,6 +31,22 @@ POLAR_ORGANIZATION_ID = "your-polar-organization-id"
 POLAR_PRODUCT_ID = "your-polar-product-id"
 
 # =========================================================
+# ▼ Infrastructure Maintenance (Keep-Alive & Health Checks)
+# =========================================================
+# Optional: Configure a target URL for automated keep-alive requests to prevent cold starts.
+KEEPALIVE_TARGET_URL = "https://api.sakutto.works/v1/normalize_web_data"
+
+# Optional: If routing keep-alive requests through a custom proxy, define the host here.
+CUSTOM_PROXY_HOST = ""
+
+# =========================================================
+# ▼ Automated Tasks (Cron Triggers)
+# =========================================================
+# Executes every 8 hours for keep-alive and background maintenance tasks.
+[triggers]
+crons = ["0 */8 * * *"]
+
+# =========================================================
 # ▼ Infrastructure Optimization
 # =========================================================
 # Smart Placement: Optimizes latency by moving execution closer to upstream Core
@@ -75,3 +91,4 @@ period = 60 # Period in seconds (must be 10 or 60 according to Cloudflare specs)
 # $ npx wrangler secret put INTERNAL_AUTH_SECRET
 # $ npx wrangler secret put RESEND_API_KEY
 # $ npx wrangler secret put POLAR_ACCESS_TOKEN
+# $ npx wrangler secret put CUSTOM_PROXY_API_KEY
