@@ -498,10 +498,14 @@ export default {
             return;
         }
 
-        const targetUrl = env.KEEPALIVE_TARGET_URL || 'https://api.sakutto.works/v1/normalize_web_data';
+        // Dynamically configure target. Defaults to lightweight health check.
+        const targetUrl = env.KEEPALIVE_TARGET_URL || 'https://api.sakutto.works/v1/health';
         const isExternalProxy = new URL(targetUrl).hostname !== 'api.sakutto.works';
 
-        console.log(`[Keep-Alive] Initiating scheduled health check against: ${targetUrl}`);
+        // Smart routing: Use GET for /health, POST with valid JSON for others
+        const isHealthCheck = targetUrl.includes('/health');
+
+        console.log(`[Keep-Alive] Initiating scheduled check against: ${targetUrl} (Mode: ${isHealthCheck ? 'GET/Health' : 'POST/Extraction'})`);
 
         const requestHeaders: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -512,28 +516,30 @@ export default {
         if (env.CUSTOM_PROXY_API_KEY) requestHeaders['X-RapidAPI-Key'] = env.CUSTOM_PROXY_API_KEY;
         if (env.CUSTOM_PROXY_HOST) requestHeaders['X-RapidAPI-Host'] = env.CUSTOM_PROXY_HOST;
 
+        const fetchOptions: RequestInit = {
+            method: isHealthCheck ? 'GET' : 'POST',
+            headers: requestHeaders
+        };
+
+        // Only attach body if it's a POST request to prevent payload formatting issues
+        if (!isHealthCheck) {
+            fetchOptions.body = JSON.stringify({ url: 'https://example.com', format_type: 'markdown' });
+        }
+
         try {
             let res: Response;
 
             if (!isExternalProxy) {
                 // Internal routing: Bypass Cloudflare network loop limits (prevent 522 error)
-                const internalRequest = new Request(targetUrl, {
-                    method: 'POST',
-                    headers: requestHeaders,
-                    body: JSON.stringify({ url: 'https://example.com', format_type: 'markdown' })
-                });
+                const internalRequest = new Request(targetUrl, fetchOptions);
                 res = await app.fetch(internalRequest, env, ctx);
             } else {
                 // External routing: Verifying public ingress via configured proxy
-                res = await fetch(targetUrl, {
-                    method: 'POST',
-                    headers: requestHeaders,
-                    body: JSON.stringify({ url: 'https://example.com', format_type: 'markdown' })
-                });
+                res = await fetch(targetUrl, fetchOptions);
             }
 
             if (res.ok) {
-                console.log(`[Keep-Alive] SUCCESS: Health check passed. Status: ${res.status}`);
+                console.log(`[Keep-Alive] SUCCESS: Check passed. Status: ${res.status}`);
             } else {
                 console.error(`[Keep-Alive] FAILED: Target returned status ${res.status}`);
                 const errorText = await res.text();
