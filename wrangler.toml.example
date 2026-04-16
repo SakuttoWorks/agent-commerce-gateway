@@ -34,7 +34,7 @@ POLAR_PRODUCT_ID = "your-polar-product-id"
 # ▼ Infrastructure Maintenance (Keep-Alive & Health Checks)
 # =========================================================
 # Optional: Configure a target URL for automated keep-alive requests to prevent cold starts.
-KEEPALIVE_TARGET_URL = "https://api.sakutto.works/v1/normalize_web_data"
+KEEPALIVE_TARGET_URL = "https://api.sakutto.works/v1/health"
 
 # Optional: If routing keep-alive requests through a custom proxy, define the host here.
 CUSTOM_PROXY_HOST = ""
@@ -44,7 +44,7 @@ CUSTOM_PROXY_HOST = ""
 # =========================================================
 # Executes every 8 hours for keep-alive and background maintenance tasks.
 [triggers]
-crons = ["0 */8 * * *"]
+crons = ["*/15 * * * *"]
 
 # =========================================================
 # ▼ Infrastructure Optimization
