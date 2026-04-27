@@ -1,11 +1,14 @@
 # 🏴‍☠️ Agent-Commerce-Gateway (Layer A: Edge Gateway)
 
+[![Official Portal](https://img.shields.io/badge/Official_Portal-sakutto.works-000000?style=for-the-badge)](https://sakutto.works)
+[![Available on RapidAPI](https://img.shields.io/badge/Available_on-RapidAPI-005571?style=for-the-badge&logo=rapid)](https://rapidapi.com/SakuttoWorks/api/agent-commerce-os)
+[![Tip via Polar.sh](https://img.shields.io/badge/Tip_via-Polar.sh-blue?style=for-the-badge)](https://buy.polar.sh/polar_cl_ZI9H5fL8dQqcormOadiGDFDpS2Sxd1jT05jTX1vStWi)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/SakuttoWorks)
+
 ![Status](https://img.shields.io/badge/Status-Active-success)
 ![Platform](https://img.shields.io/badge/Platform-Cloudflare%20Workers-orange)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![Compliance](https://img.shields.io/badge/Compliance-EU%20AI%20Act-green)
-[![Get API Key](https://img.shields.io/badge/Get_API_Key-Polar.sh-blue?style=flat)](https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj)
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=flat&logo=github)](https://github.com/sponsors/SakuttoWorks)
 
 > **High-performance HTTP Proxy and Defense-in-Depth Edge Layer for Project GHOST SHIP.**
 
